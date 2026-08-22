@@ -1,0 +1,15 @@
+# credentials 
+Secret.txt
+*.secret
+*.token
+
+# Design source files and raw exports (large, and contain real screenshots of my actual budget)
+YNABCumulativeTrends.psd
+YNABCumulativeTrends.jpg
+*.psd
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
