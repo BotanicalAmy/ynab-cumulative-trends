@@ -13,11 +13,11 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 ## Screenshots
 
 <p align="center">
-	<img src="screenshots/IncomeVsSpend.jpg" alt="Income vs. Spend chart, cumulative lines for income and spend over the year" width="85%">
+	<img src="screenshots/IncomeVsSpend.jpg" alt="Income vs. Spend chart, cumulative lines for income and spend over the year" width="800">
 </p>
 
 <p align="center">
-	<img src="screenshots/SpendingTrends.jpg" alt="Spending Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions" width="85%">
+	<img src="screenshots/SpendingTrends.jpg" alt="Spending Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions" width="800">
 </p>
 
 
