@@ -32,10 +32,10 @@
   'use strict';
 
   const CONFIG = {
-    // Edit these names to choose the default Category Trends groups. They only
-    // set the initial selection; the chart picker controls it afterward.
-    // Use this to keep an eye on categories where lifestyle creep may develop.
-    DEFAULT_CATEGORY_TRENDS_GROUPS: ['Enjoyment', 'Wellness', 'Subscriptions'],
+    // The script starts with no default Category Trends groups selected.
+    // Users can pick their own defaults from the chart header, and those choices
+    // are saved per budget in Tampermonkey local storage.
+    DEFAULT_CATEGORY_TRENDS_GROUPS: [],
 
     // These groups are internal YNAB bookkeeping, not real spending. Keep
     // them out of the picker and all category-based spending totals.
@@ -55,12 +55,14 @@
   const warn = (...args) => console.warn('[YNAB Cumulative]', ...args);
   const BUDGET_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reflect\/spending-trends(?:\/|$)/i;
 
+  // Read the active YNAB budget id from the current URL so the script can
+  // fetch data for the correct budget without asking the user to enter it.
   function getBudgetIdFromUrl() {
     const match = location.pathname.match(BUDGET_PATH);
     return match ? match[1] : null;
   }
 
-  // ---------- token storage (never in this file) ----------
+  // ---------- local browser token storage (never save in this file) ----------
   const TOKEN_KEY = 'ynab_cumulative_pat';
 
   function getStoredToken() {
@@ -93,6 +95,8 @@
     GM_deleteValue(TOKEN_KEY);
   }
 
+  // The default Category Trends groups are stored per budget in Tampermonkey
+  // local storage so the same user can keep different defaults for different budgets.
   function getDefaultGroupsKey(budgetId) {
     return `${DEFAULT_GROUPS_STORAGE_PREFIX}${budgetId}`;
   }
@@ -132,12 +136,16 @@
     return selected;
   }
 
+  // Expose a simple Tampermonkey menu action so the user can replace an
+  // expired or rejected YNAB token without editing this file.
   GM_registerMenuCommand('Reset YNAB API Token', () => {
     clearToken();
     log('Token cleared. Reloading so you can enter a new one…');
     location.reload();
   });
 
+  // Wrapper around the YNAB API that adds the stored bearer token and handles
+  // the common 401 case by clearing the stale token before surfacing the error.
   function apiGet(path) {
     return new Promise((resolve, reject) => {
       const token = getStoredToken();
@@ -161,6 +169,9 @@
     });
   }
 
+  // Fetch the current budget snapshot and reshape it into the normalized data
+  // model used by the charts: a category tree for selectors and month-level
+  // totals for cumulative calculations.
   async function fetchYearData(budgetId, reportYear) {
     // One budget request includes each month's per-category activity.
     const budgetData = await apiGet(`/budgets/${encodeURIComponent(budgetId)}`);
@@ -219,19 +230,23 @@
     return { catMeta, months, categoryTree, availableYears, reportYear: resolvedYear };
   }
 
-  // All selectable leaf IDs, used as Spend's default selection.
+  // A flat list of leaf category ids used to seed the default selection for the
+  // Income vs. Spend chart and to support "select all" behavior in the picker.
   function allLeafIds(categoryTree) {
     const ids = [];
     categoryTree.forEach((g) => g.categories.forEach((c) => ids.push(c.id)));
     return ids;
   }
 
-  // Return selected top-level groups; each group becomes a Category Trends line.
+  // Build the active Category Trends group list from the selected leaf ids. Each
+  // group becomes a separate series in the cumulative chart.
   function getActiveGroups(categoryTree, selectedSet) {
     return categoryTree.filter((g) => g.categories.some((c) => selectedSet.has(c.id))).map((g) => g.name);
   }
 
-  // Sum both charts from cached category data whenever a selection changes.
+  // Convert the raw month data into the values needed by the two cumulative
+  // charts: total spend for the Income vs. Spend view and grouped spend totals for
+  // the Category Trends view.
   function computeSummary(months, spendSet, categoryTrendsSet, catMeta, categoryTree) {
     const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const activeGroups = getActiveGroups(categoryTree, categoryTrendsSet);
@@ -256,11 +271,48 @@
   }
 
   // ---------- charting (plain SVG) ----------
+  // The app renders the cumulative charts manually with SVG instead of a JS
+  // chart library so it can stay lightweight and match YNAB's styling more closely.
   const ns = 'http://www.w3.org/2000/svg';
   function el(tag, attrs) {
     const e = document.createElementNS(ns, tag);
     for (const k in attrs) e.setAttribute(k, attrs[k]);
     return e;
+  }
+  function createButton({ className, text, type = 'button' }) {
+    const button = document.createElement('button');
+    button.type = type;
+    button.className = className;
+    if (text !== undefined && text !== null) button.textContent = text;
+    return button;
+  }
+  function createCheckboxRow({ labelText, checked, rowClassName, onToggle, hiddenText = null }) {
+    const row = document.createElement('label');
+    row.className = rowClassName;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = checked;
+    checkbox.addEventListener('change', () => onToggle(checkbox.checked));
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    row.appendChild(checkbox);
+    row.appendChild(label);
+    if (hiddenText) {
+      const tag = document.createElement('span');
+      tag.className = 'yct-picker-hidden-tag';
+      tag.textContent = hiddenText;
+      row.appendChild(tag);
+    }
+    return row;
+  }
+  function bindOutsideClick(scope, panel, closePanel) {
+    const outsideClickHandler = (event) => {
+      if (panel.style.display !== 'none' && !scope.contains(event.target)) {
+        closePanel();
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', outsideClickHandler), 0);
+    return outsideClickHandler;
   }
   function fmt(n) {
     const sign = n < 0 ? '-' : '';
@@ -303,6 +355,10 @@
   function drawCumulativeChart(mountEl, actualRows, seriesDefs, gridStep, titleText, makeStats, headerRightEl, makeTooltipExtras, allowProjection = true, emptyMessage = null) {
     const runKeys = seriesDefs.map((s) => s.key);
     const { full, avg } = padToFullYear(actualRows, runKeys, allowProjection);
+    const projectionState = {
+      hasProjection: allowProjection && actualRows.length > 0 && actualRows.length < 12,
+      lastActualIdx: Math.max(actualRows.length - 1, 0),
+    };
 
     let running = {};
     runKeys.forEach((k) => (running[k] = 0));
@@ -316,14 +372,12 @@
     });
 
     const n = data.length;
-    const lastActualIdx = actualRows.length - 1;
-    const hasProjection = allowProjection && actualRows.length < 12 && actualRows.length > 0;
-
     const W = 780, H = 300;
     const padL = 50, padR = 76, padTop = 32, padBottom = 26;
     const plotW = W - padL - padR, plotH = H - padTop - padBottom;
     const xStep = n > 1 ? plotW / (n - 1) : 0;
     const xAt = (i) => padL + xStep * i;
+
     let dataMax = 0;
     data.forEach((d) => runKeys.forEach((k) => { if (d[k] > dataMax) dataMax = d[k]; }));
     const { axisStep, axisMax } = computeNiceAxis(dataMax, gridStep);
@@ -337,101 +391,36 @@
       return '$' + Math.round(value).toLocaleString('en-US');
     }
 
-    // ---- card shell ----
-    const wrap = document.createElement('div');
-    wrap.className = 'yct-card';
-    const tooltip = document.createElement('div');
-    tooltip.className = 'yct-tooltip';
-    tooltip.style.display = 'none';
-    wrap.appendChild(tooltip);
-
-    const head = document.createElement('div');
-    head.className = 'yct-card-head';
-
-    const headLeft = document.createElement('div');
-    headLeft.className = 'yct-card-head-left';
-    const h3 = document.createElement('h3');
-    h3.className = 'yct-title';
-    h3.textContent = titleText;
-    headLeft.appendChild(h3);
-
-    // ---- summary stat tiles ----
-    if (makeStats && data[n - 1] && !emptyMessage) {
-      const statsRow = document.createElement('div');
-      statsRow.className = 'yct-stats';
-      const currentRow = data[Math.max(0, lastActualIdx)] || data[n - 1];
-      makeStats(data[n - 1], avg, currentRow).forEach((s) => {
-        const tile = document.createElement('div');
-        tile.className = `yct-stat ${s.className || ''}`;
-        tile.innerHTML = `<div class="yct-stat-label">${s.label}</div><div class="yct-stat-value" style="${s.color ? 'color:' + s.color : ''}">${s.value}</div>`;
-        statsRow.appendChild(tile);
+    function renderLegend() {
+      const legend = document.createElement('div');
+      legend.className = 'yct-legend';
+      seriesDefs.forEach((s) => {
+        const item = document.createElement('span');
+        item.className = 'yct-legend-item';
+        const swatchShape = s.marker === 'diamond' ? 'yct-swatch-diamond' : 'yct-swatch-circle';
+        item.innerHTML = `<span class="yct-line-swatch" style="background:${s.color}"></span><span class="yct-swatch ${swatchShape}" style="background:${s.color}"></span>${s.label}`;
+        legend.appendChild(item);
       });
-      headLeft.appendChild(statsRow);
-    }
-    head.appendChild(headLeft);
-
-    if (headerRightEl) {
-      const headRight = document.createElement('div');
-      headRight.className = 'yct-card-head-right';
-      headRight.appendChild(headerRightEl);
-      head.appendChild(headRight);
-    }
-    wrap.appendChild(head);
-
-    if (!data.length) {
-      const empty = document.createElement('div');
-      empty.className = 'yct-empty-hint';
-      empty.textContent = 'No data is available for this year.';
-      wrap.appendChild(empty);
-      mountEl.appendChild(wrap);
-      return;
-    }
-    if (emptyMessage) {
-      const empty = document.createElement('div');
-      empty.className = 'yct-empty-hint';
-        const marker = document.createElement('span');
-        marker.className = 'yct-empty-hint-marker';
-        marker.textContent = '!';
-        const message = document.createElement('span');
-        message.textContent = emptyMessage;
-        empty.appendChild(marker);
-        empty.appendChild(message);
-      wrap.appendChild(empty);
-      mountEl.appendChild(wrap);
-      return;
+      if (projectionState.hasProjection) {
+        const proj = document.createElement('span');
+        proj.className = 'yct-legend-item';
+        proj.innerHTML = `<span class="yct-line-swatch yct-line-dashed"></span>Projected pace`;
+        legend.appendChild(proj);
+      }
+      return legend;
     }
 
-    // ---- legend ----
-    const legend = document.createElement('div');
-    legend.className = 'yct-legend';
-    seriesDefs.forEach((s) => {
-      const item = document.createElement('span');
-      item.className = 'yct-legend-item';
-      const swatchShape = s.marker === 'diamond' ? 'yct-swatch-diamond' : 'yct-swatch-circle';
-      item.innerHTML = `<span class="yct-line-swatch" style="background:${s.color}"></span><span class="yct-swatch ${swatchShape}" style="background:${s.color}"></span>${s.label}`;
-      legend.appendChild(item);
-    });
-    if (hasProjection) {
-      const proj = document.createElement('span');
-      proj.className = 'yct-legend-item';
-      proj.innerHTML = `<span class="yct-line-swatch yct-line-dashed"></span>Projected pace`;
-      legend.appendChild(proj);
-    }
-    wrap.appendChild(legend);
+    function renderGrid(svg) {
+      for (let v = 0; v <= axisMax; v += axisStep) {
+        const y = yAt(v);
+        svg.appendChild(el('line', { class: 'yct-grid', x1: padL, x2: W - padR, y1: y, y2: y }));
+        const lbl = el('text', { class: 'yct-axis', x: padL - 7, y: y + 3, 'text-anchor': 'end' });
+        lbl.textContent = formatAxisValue(v);
+        svg.appendChild(lbl);
+      }
 
-    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'yct-chart' });
-
-    for (let v = 0; v <= axisMax; v += axisStep) {
-      const y = yAt(v);
-      svg.appendChild(el('line', { class: 'yct-grid', x1: padL, x2: W - padR, y1: y, y2: y }));
-      const lbl = el('text', { class: 'yct-axis', x: padL - 7, y: y + 3, 'text-anchor': 'end' });
-      lbl.textContent = formatAxisValue(v);
-      svg.appendChild(lbl);
-    }
-
-    // actual/projected divider + zone labels
-    if (hasProjection) {
-      const dx = (xAt(lastActualIdx) + xAt(lastActualIdx + 1)) / 2;
+      if (!projectionState.hasProjection) return;
+      const dx = (xAt(projectionState.lastActualIdx) + xAt(projectionState.lastActualIdx + 1)) / 2;
       svg.appendChild(el('line', { class: 'yct-divider', x1: dx, x2: dx, y1: padTop, y2: padTop + plotH }));
       const t1 = el('text', { class: 'yct-zone', x: padL, y: padTop - 10 });
       t1.textContent = 'ACTUAL';
@@ -450,36 +439,41 @@
       return d;
     }
 
-    const solidEnd = hasProjection ? lastActualIdx : n - 1;
-    seriesDefs.forEach((s) => {
-      if (solidEnd > 0) {
-        svg.appendChild(el('path', { d: pathFor(s.key, 0, solidEnd), fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-linejoin': 'round' }));
-      }
-      if (hasProjection) {
-        svg.appendChild(el('path', { d: pathFor(s.key, lastActualIdx, n - 1), fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round' }));
-      }
-    });
-
-    data.forEach((row, i) => {
-      const x = xAt(i);
+    function renderSeries(svg) {
+      const solidEnd = projectionState.hasProjection ? projectionState.lastActualIdx : n - 1;
       seriesDefs.forEach((s) => {
-        const y = yAt(row[s.key]);
-        const hollow = row.projected;
-        if (s.marker === 'diamond') {
-          const sz = 5;
-          svg.appendChild(el('rect', {
-            x: x - sz / 1.6, y: y - sz / 1.6, width: sz * 1.25, height: sz * 1.25,
-            fill: hollow ? '#fff' : s.color, stroke: s.color, 'stroke-width': hollow ? 2 : 0,
-            transform: `rotate(45 ${x} ${y})`,
-          }));
-        } else {
-          svg.appendChild(el('circle', { cx: x, cy: y, r: 4, fill: hollow ? '#fff' : s.color, stroke: s.color, 'stroke-width': hollow ? 2 : 0 }));
+        if (solidEnd > 0) {
+          svg.appendChild(el('path', { d: pathFor(s.key, 0, solidEnd), fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-linejoin': 'round' }));
+        }
+        if (projectionState.hasProjection) {
+          svg.appendChild(el('path', { d: pathFor(s.key, projectionState.lastActualIdx, n - 1), fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round' }));
         }
       });
-      const mLbl = el('text', { class: 'yct-month', x, y: H - 6, 'text-anchor': 'middle' });
-      mLbl.textContent = ALL_MONTH_NAMES[row.monthIndex] || row.m;
-      svg.appendChild(mLbl);
-    });
+    }
+
+    function renderMarkersAndLabels(svg) {
+      data.forEach((row, i) => {
+        const x = xAt(i);
+        seriesDefs.forEach((s) => {
+          const y = yAt(row[s.key]);
+          const hollow = row.projected;
+          if (s.marker === 'diamond') {
+            const sz = 5;
+            svg.appendChild(el('rect', {
+              x: x - sz / 1.6, y: y - sz / 1.6, width: sz * 1.25, height: sz * 1.25,
+              fill: hollow ? '#fff' : s.color, stroke: s.color, 'stroke-width': hollow ? 2 : 0,
+              transform: `rotate(45 ${x} ${y})`,
+            }));
+          } else {
+            svg.appendChild(el('circle', { cx: x, cy: y, r: 4, fill: hollow ? '#fff' : s.color, stroke: s.color, 'stroke-width': hollow ? 2 : 0 }));
+          }
+        });
+
+        const mLbl = el('text', { class: 'yct-month', x, y: H - 6, 'text-anchor': 'middle' });
+        mLbl.textContent = ALL_MONTH_NAMES[row.monthIndex] || row.m;
+        svg.appendChild(mLbl);
+      });
+    }
 
     function appendTooltipValue(container, labelText, amount, color, signed) {
       const value = document.createElement('div');
@@ -496,6 +490,22 @@
       value.appendChild(labelRow);
       value.appendChild(amountLabel);
       container.appendChild(value);
+    }
+
+    function attachHoverTargets(svg, tooltip) {
+      data.forEach((row, i) => {
+        const hit = el('rect', {
+          class: 'yct-hover-target',
+          x: i === 0 ? padL : (xAt(i - 1) + xAt(i)) / 2,
+          y: padTop,
+          width: n === 1 ? plotW : (i === 0 || i === n - 1 ? xStep / 2 : (xAt(i + 1) - xAt(i - 1)) / 2),
+          height: plotH,
+        });
+        hit.addEventListener('pointerenter', (event) => showTooltip(i, event));
+        hit.addEventListener('pointermove', (event) => showTooltip(i, event));
+        hit.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; tooltip.style.visibility = ''; });
+        svg.appendChild(hit);
+      });
     }
 
     function showTooltip(index, event) {
@@ -528,19 +538,74 @@
       tooltip.style.visibility = 'visible';
     }
 
-    data.forEach((row, i) => {
-      const hit = el('rect', {
-        class: 'yct-hover-target',
-        x: i === 0 ? padL : (xAt(i - 1) + xAt(i)) / 2,
-        y: padTop,
-        width: n === 1 ? plotW : (i === 0 || i === n - 1 ? xStep / 2 : (xAt(i + 1) - xAt(i - 1)) / 2),
-        height: plotH,
+    const wrap = document.createElement('div');
+    wrap.className = 'yct-card';
+    const tooltip = document.createElement('div');
+    tooltip.className = 'yct-tooltip';
+    tooltip.style.display = 'none';
+    wrap.appendChild(tooltip);
+
+    const head = document.createElement('div');
+    head.className = 'yct-card-head';
+    const headLeft = document.createElement('div');
+    headLeft.className = 'yct-card-head-left';
+    const h3 = document.createElement('h3');
+    h3.className = 'yct-title';
+    h3.textContent = titleText;
+    headLeft.appendChild(h3);
+
+    if (makeStats && data[n - 1] && !emptyMessage) {
+      const statsRow = document.createElement('div');
+      statsRow.className = 'yct-stats';
+      const currentRow = data[Math.max(0, projectionState.lastActualIdx)] || data[n - 1];
+      makeStats(data[n - 1], avg, currentRow).forEach((s) => {
+        const tile = document.createElement('div');
+        tile.className = `yct-stat ${s.className || ''}`;
+        tile.innerHTML = `<div class="yct-stat-label">${s.label}</div><div class="yct-stat-value" style="${s.color ? 'color:' + s.color : ''}">${s.value}</div>`;
+        statsRow.appendChild(tile);
       });
-      hit.addEventListener('pointerenter', (event) => showTooltip(i, event));
-      hit.addEventListener('pointermove', (event) => showTooltip(i, event));
-      hit.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; tooltip.style.visibility = ''; });
-      svg.appendChild(hit);
-    });
+      headLeft.appendChild(statsRow);
+    }
+    head.appendChild(headLeft);
+
+    if (headerRightEl) {
+      const headRight = document.createElement('div');
+      headRight.className = 'yct-card-head-right';
+      headRight.appendChild(headerRightEl);
+      head.appendChild(headRight);
+    }
+    wrap.appendChild(head);
+
+    if (!data.length) {
+      const empty = document.createElement('div');
+      empty.className = 'yct-empty-hint';
+      empty.textContent = 'No data is available for this year.';
+      wrap.appendChild(empty);
+      mountEl.appendChild(wrap);
+      return;
+    }
+    if (emptyMessage) {
+      const empty = document.createElement('div');
+      empty.className = 'yct-empty-hint';
+      const marker = document.createElement('span');
+      marker.className = 'yct-empty-hint-marker';
+      marker.textContent = '!';
+      const message = document.createElement('span');
+      message.textContent = emptyMessage;
+      empty.appendChild(marker);
+      empty.appendChild(message);
+      wrap.appendChild(empty);
+      mountEl.appendChild(wrap);
+      return;
+    }
+
+    wrap.appendChild(renderLegend());
+
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'yct-chart' });
+    renderGrid(svg);
+    renderSeries(svg);
+    renderMarkersAndLabels(svg);
+    attachHoverTargets(svg, tooltip);
 
     const endPts = seriesDefs.map((s) => ({ s, y: yAt(data[n - 1][s.key]), val: data[n - 1][s.key] }));
     endPts.sort((a, b) => a.y - b.y);
@@ -552,11 +617,13 @@
       t.textContent = fmt(p.val);
       svg.appendChild(t);
     });
+
     wrap.appendChild(svg);
     mountEl.appendChild(wrap);
   }
 
-  // Assign each Category Trends group a stable color from the palette.
+  // Give each category group a stable color so the same group stays the same
+  // color even if the selected set changes between renders.
   const GROUP_PALETTE = ['#2d7ff9', '#f26b38', '#20b875', '#e3a51a', '#d94f9d', '#6074d9', '#e04b59', '#62b642', '#9a63d8', '#20a6b8'];
   function buildGroupColorMap(categoryTree) {
     const map = {};
@@ -565,10 +632,11 @@
   }
 
   // ---------- shared category picker ----------
-  // Spend counts leaf categories; Category Trends counts selected groups.
+  // Each chart uses a menu that lets a user pick categories or category groups.
+  // For the spend view, selection is by leaf category; for category trends, we
+  // count selected groups and then roll all of their leaf categories up together.
   let pickerInstanceId = 0;
-  function createCategoryPicker({ tree, selected, onDone, countMode = 'leaves' }) {
-    const totalLeaves = allLeafIds(tree).length;
+  function createCategoryPicker({ tree, selected, onDone }) {
     const totalGroups = tree.length;
     const pickerId = ++pickerInstanceId;
     let applied = new Set(selected);
@@ -577,9 +645,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'yct-picker';
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'yct-picker-btn';
+    const btn = createButton({ className: 'yct-picker-btn', text: 'No Groups ▾' });
     wrap.appendChild(btn);
 
     const panel = document.createElement('div');
@@ -723,8 +789,7 @@
       });
       panel.querySelector('.yct-picker-done').addEventListener('click', close);
       panel.style.display = 'block';
-      outsideClickHandler = (e) => { if (!wrap.contains(e.target)) close(); };
-      setTimeout(() => document.addEventListener('mousedown', outsideClickHandler), 0);
+      outsideClickHandler = bindOutsideClick(wrap, panel, close);
     }
     function close() {
       panel.style.display = 'none';
@@ -735,8 +800,22 @@
     return wrap;
   }
 
+  // The app injects a small style sheet so the custom controls and SVG chart
+  // match YNAB's look without depending on external CSS or libraries.
   function injectStyles() {
     GM_addStyle(`
+      :root {
+        --yct-blue: #4e57f8;
+        --yct-blue-soft: #edf2ff;
+        --yct-blue-soft-hover: #e5edff;
+        --yct-blue-border: #dfe7ff;
+        --yct-text: #17181d;
+        --yct-text-muted: #6f7380;
+        --yct-panel-border: #e2e5ec;
+        --yct-panel-shadow: rgba(20, 24, 40, 0.16);
+        --yct-row-hover: #f7f8fb;
+        --yct-divider: #ece9e0;
+      }
       #yct-root {
         font-family: system-ui, -apple-system, sans-serif;
         display: flex; flex-direction: column; gap: 20px;
@@ -744,10 +823,10 @@
       }
       .yct-chart-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       .yct-year-control { display: flex; align-items: center; gap: 4px; }
-      .yct-year-label { margin-right: 4px; color: #6f7380; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+      .yct-year-label { margin-right: 4px; color: var(--yct-text-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
       .yct-year-select {
-        font-family: inherit; font-size: 13px; font-weight: 600; color: #4e57f8;
-        background: #eef3fd; border: 1px solid #dfe7ff; border-radius: 8px;
+        font-family: inherit; font-size: 13px; font-weight: 600; color: var(--yct-blue);
+        background: #eef3fd; border: 1px solid var(--yct-blue-border); border-radius: 8px;
         padding: 7px 28px 7px 11px; cursor: pointer;
       }
       .yct-card {
@@ -817,41 +896,41 @@
       .yct-default-groups-btn,
       .yct-default-groups-save,
       .yct-default-groups-reset {
-        font-family: inherit; font-size: 13px; font-weight: 600; color: #4e57f8;
-        background: #edf2ff; border: 1px solid #dfe7ff; border-radius: 8px;
+        font-family: inherit; font-size: 13px; font-weight: 600; color: var(--yct-blue);
+        background: var(--yct-blue-soft); border: 1px solid var(--yct-blue-border); border-radius: 8px;
         padding: 7px 12px; cursor: pointer; white-space: nowrap;
       }
       .yct-picker-btn:hover,
       .yct-default-groups-btn:hover,
       .yct-default-groups-save:hover,
-      .yct-default-groups-reset:hover { background: #e5edff; }
+      .yct-default-groups-reset:hover { background: var(--yct-blue-soft-hover); }
       .yct-default-groups-wrap { position: relative; }
       .yct-default-groups-panel {
         position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
-        width: 240px; background: #fff; border: 1px solid #e2e5ec; border-radius: 10px;
-        box-shadow: 0 8px 28px rgba(20, 24, 40, 0.16); display: flex; flex-direction: column; overflow: hidden;
+        width: 240px; background: #fff; border: 1px solid var(--yct-panel-border); border-radius: 10px;
+        box-shadow: 0 8px 28px var(--yct-panel-shadow); display: flex; flex-direction: column; overflow: hidden;
       }
       .yct-default-groups-note {
-        padding: 10px 12px 8px; font-size: 12px; line-height: 1.4; color: #5b6170; border-bottom: 1px solid #ece9e0;
+        padding: 10px 12px 8px; font-size: 12px; line-height: 1.4; color: #5b6170; border-bottom: 1px solid var(--yct-divider);
       }
       .yct-default-groups-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 8px 0; }
       .yct-default-groups-row {
         display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: #2c2e38;
       }
-      .yct-default-groups-row:hover { background: #f7f8fb; }
-      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4e57f8; }
+      .yct-default-groups-row:hover { background: var(--yct-row-hover); }
+      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--yct-blue); }
       .yct-default-groups-footer {
-        display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #ece9e0; padding: 9px 12px;
+        display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--yct-divider); padding: 9px 12px;
       }
       .yct-picker-panel {
         position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
-        width: 300px; max-width: 80vw; background: #fff; border: 1px solid #e2e5ec;
-        border-radius: 10px; box-shadow: 0 8px 28px rgba(20, 24, 40, 0.16);
+        width: 300px; max-width: 80vw; background: #fff; border: 1px solid var(--yct-panel-border);
+        border-radius: 10px; box-shadow: 0 8px 28px var(--yct-panel-shadow);
         display: flex; flex-direction: column; overflow: hidden;
       }
       .yct-picker-search {
-        font-family: inherit; font-size: 13px; border: none; border-bottom: 1px solid #ece9e0;
-        padding: 11px 14px; outline: none; color: #17181d;
+        font-family: inherit; font-size: 13px; border: none; border-bottom: 1px solid var(--yct-divider);
+        padding: 11px 14px; outline: none; color: var(--yct-text);
       }
       .yct-picker-search::placeholder { color: #9a9d8c; }
       .yct-picker-list { max-height: 260px; overflow-y: auto; padding: 6px 0; }
@@ -859,19 +938,19 @@
         display: flex; align-items: center; gap: 9px; padding: 6px 14px;
         font-size: 13px; color: #2c2e38;
       }
-      .yct-picker-row:hover { background: #f7f8fb; }
+      .yct-picker-row:hover { background: var(--yct-row-hover); }
       .yct-picker-row-group { font-weight: 700; }
       .yct-picker-row-cat { padding-left: 30px; font-weight: 400; }
-      .yct-picker-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4e57f8; flex-shrink: 0; }
+      .yct-picker-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--yct-blue); flex-shrink: 0; }
       .yct-picker-row label { flex: 1 1 auto; cursor: pointer; }
       .yct-picker-hidden-tag { font-size: 10.5px; color: #9a9d8c; font-weight: 600; white-space: nowrap; }
       .yct-picker-footer {
         display: flex; align-items: center; justify-content: space-between;
-        border-top: 1px solid #ece9e0; padding: 9px 12px; gap: 8px;
+        border-top: 1px solid var(--yct-divider); padding: 9px 12px; gap: 8px;
       }
       .yct-picker-footer-links { display: flex; gap: 12px; }
       .yct-picker-link {
-        font-family: inherit; font-size: 12px; font-weight: 600; color: #4e57f8;
+        font-family: inherit; font-size: 12px; font-weight: 600; color: var(--yct-blue);
         background: none; border: none; cursor: pointer; padding: 2px;
       }
       .yct-picker-link:hover { text-decoration: underline; }
@@ -882,7 +961,7 @@
       }
       .yct-picker-cancel { background: #f0f1f4; color: #4a4d59; }
       .yct-picker-cancel:hover { background: #e6e7ec; }
-      .yct-picker-done { background: #4e57f8; color: #fff; }
+      .yct-picker-done { background: var(--yct-blue); color: #fff; }
       .yct-picker-done:hover { background: #424deb; }
     `);
   }
@@ -905,6 +984,9 @@
   }
 
   // ---------- route-aware mount and unmount ----------
+  // These values keep a single custom panel mounted while the user stays on the
+  // spending-trends route, and they cache budget data so the app does not refetch
+  // the same information when the user changes only the selected year.
   let panelState = null; // { root, nativeContainer } while mounted, else null
   let dataPromise = null; // cache the fetch so re-entering the page doesn't re-fetch every time
   let dataBudgetId = null;
@@ -961,71 +1043,68 @@
     return yearControl;
   }
 
+  // This menu allows the user to choose and save their default Category Trends
+  // groups for the current budget. Those saved values are reapplied automatically
+  // on later visits to this budget's Spending Trends page.
   function createDefaultGroupsButton({ budgetId, categoryTree, onSave }) {
     const wrap = document.createElement('div');
     wrap.className = 'yct-default-groups-wrap';
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'yct-default-groups-btn';
-    btn.textContent = 'Default Groups';
-
+    const btn = createButton({ className: 'yct-default-groups-btn', text: 'Default Groups' });
     const panel = document.createElement('div');
     panel.className = 'yct-default-groups-panel';
     panel.style.display = 'none';
 
     let draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
+    let outsideClickHandler = null;
+
+    function closePanel() {
+      panel.style.display = 'none';
+      if (outsideClickHandler) {
+        document.removeEventListener('mousedown', outsideClickHandler);
+        outsideClickHandler = null;
+      }
+    }
 
     function renderPanel() {
       panel.innerHTML = '';
       const note = document.createElement('div');
       note.className = 'yct-default-groups-note';
-      note.textContent = 'Pick the default groups to display when this budget loads.';
+      note.textContent = 'Select the default groups to monitor with the category trend view.';
       panel.appendChild(note);
+
       const list = document.createElement('div');
       list.className = 'yct-default-groups-list';
       categoryTree.forEach((group) => {
-        const row = document.createElement('label');
-        row.className = 'yct-default-groups-row';
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = draft.has(group.name);
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) {
-            draft.add(group.name);
-          } else {
-            draft.delete(group.name);
-          }
+        const row = createCheckboxRow({
+          labelText: group.name,
+          checked: draft.has(group.name),
+          rowClassName: 'yct-default-groups-row',
+          onToggle: (isChecked) => {
+            if (isChecked) draft.add(group.name);
+            else draft.delete(group.name);
+          },
         });
-        const label = document.createElement('span');
-        label.textContent = group.name;
-        row.appendChild(checkbox);
-        row.appendChild(label);
         list.appendChild(row);
       });
 
       const footer = document.createElement('div');
       footer.className = 'yct-default-groups-footer';
-      const resetBtn = document.createElement('button');
-      resetBtn.type = 'button';
-      resetBtn.className = 'yct-default-groups-reset';
-      resetBtn.textContent = 'Reset';
+
+      const resetBtn = createButton({ className: 'yct-default-groups-reset', text: 'Reset' });
       resetBtn.addEventListener('click', () => {
         clearSavedDefaultGroups(budgetId);
         draft = new Set();
         onSave([]);
-        panel.style.display = 'none';
+        closePanel();
       });
 
-      const saveBtn = document.createElement('button');
-      saveBtn.type = 'button';
-      saveBtn.className = 'yct-default-groups-save';
-      saveBtn.textContent = 'Save';
+      const saveBtn = createButton({ className: 'yct-default-groups-save', text: 'Save' });
       saveBtn.addEventListener('click', () => {
         const groupNames = Array.from(draft);
         saveDefaultGroups(budgetId, groupNames);
         onSave(groupNames);
-        panel.style.display = 'none';
+        closePanel();
       });
 
       footer.appendChild(resetBtn);
@@ -1037,12 +1116,11 @@
     btn.addEventListener('click', () => {
       draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
       renderPanel();
-      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    });
-
-    document.addEventListener('mousedown', (event) => {
-      if (panel.style.display !== 'none' && !wrap.contains(event.target)) {
-        panel.style.display = 'none';
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        outsideClickHandler = bindOutsideClick(wrap, panel, closePanel);
+      } else {
+        closePanel();
       }
     });
 
@@ -1051,6 +1129,8 @@
     return wrap;
   }
 
+  // Compose the shared header controls for each chart: year selector, category
+  // picker, and any optional budget-specific control like "Default Groups".
   function createChartControls(reportYear, picker, availableYears, extraControl = null) {
     const controls = document.createElement('div');
     controls.className = 'yct-chart-controls';
@@ -1060,6 +1140,8 @@
     return controls;
   }
 
+  // Build the custom panel that sits above YNAB's native chart and renders the
+  // two cumulative cards plus their controls and saved default-group selector.
   function buildPanel({ catMeta, months, categoryTree, availableYears }, budgetId, reportYear) {
     injectStyles();
     const root = document.createElement('div');
@@ -1170,6 +1252,8 @@
     panelState = { root, nativeContainer, budgetId };
   }
 
+  // Ensure the custom panel exists only on the Spending Trends page and reuses
+  // the cached budget data unless the user changed years or budgets.
   async function ensurePanel() {
     const budgetId = getBudgetIdFromUrl();
     const reportYear = selectedYear;
@@ -1212,6 +1296,8 @@
     }
   }
 
+  // Listen for YNAB route changes so the script can mount/unmount itself when the
+  // user navigates away from or onto the Spending Trends screen.
   function watchRoute() {
     let lastPath = location.pathname;
     const check = () => {
@@ -1227,6 +1313,7 @@
     window.addEventListener('popstate', check);
   }
 
+  // Boot the script after the page finishes loading and start the route watcher.
   function boot() {
     watchRoute();
     ensurePanel();
