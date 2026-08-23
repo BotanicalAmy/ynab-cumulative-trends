@@ -2,7 +2,7 @@
 // @name         YNAB Cumulative Trends
 // @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
 // @version      1.1.0
-// @description  Adds cumulative (running-total) line charts, Income vs. Spend and Category Trends, above YNAB's monthly Spending Trends
+// @description  Adds cumulative (running-total) line charts, Income vs. Spend and Spending Trends by group, above YNAB's monthly Spending Trends
 // @author       Amy Folkestad
 // @match        https://app.ynab.com/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   const CONFIG = {
-    // The script starts with no default Category Trends groups selected.
+    // The script starts with no default Spending Trends groups selected.
     // Users can pick their own defaults from the chart header, and those choices are saved per budget in Tampermonkey local storage.
     DEFAULT_CATEGORY_TRENDS_GROUPS: [],
 
@@ -84,7 +84,7 @@
     GM_deleteValue(TOKEN_KEY);
   }
 
-  // Store the default Category Trends groups in Tampermonkey local storage so the user saves their preferences 
+  // Store the default Spending Trends groups in Tampermonkey local storage so the user saves their preferences 
   // Saved per unique budget ID to handle users with multiple budgets
   function getDefaultGroupsKey(budgetId) {
     return `${DEFAULT_GROUPS_STORAGE_PREFIX}${budgetId}`;
@@ -223,14 +223,14 @@
     return ids;
   }
 
-  // Build the active Category Trends group list from the selected leaf ids. 
+  // Build the active Spending Trends group list from the selected leaf ids. 
   // Each group becomes a separate series in the cumulative chart.
   function getActiveGroups(categoryTree, selectedSet) {
     return categoryTree.filter((g) => g.categories.some((c) => selectedSet.has(c.id))).map((g) => g.name);
   }
 
   // Convert the raw month data into the values needed by the two cumulative charts:
-  // total spend for the Income vs. Spend view and grouped spend totals for the Category Trends view.
+  // total spend for the Income vs. Spend view and grouped spend totals for the Spending Trends view.
   function computeSummary(months, spendSet, categoryTrendsSet, catMeta, categoryTree) {
     const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const activeGroups = getActiveGroups(categoryTree, categoryTrendsSet);
@@ -521,6 +521,10 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'yct-card';
+    const h3 = document.createElement('h3');
+    h3.className = 'yct-title';
+    h3.textContent = titleText;
+    mountEl.appendChild(h3);
     const tooltip = document.createElement('div');
     tooltip.className = 'yct-tooltip';
     tooltip.style.display = 'none';
@@ -530,10 +534,6 @@
     head.className = 'yct-card-head';
     const headLeft = document.createElement('div');
     headLeft.className = 'yct-card-head-left';
-    const h3 = document.createElement('h3');
-    h3.className = 'yct-title';
-    h3.textContent = titleText;
-    headLeft.appendChild(h3);
 
     if (makeStats && data[n - 1] && !emptyMessage) {
       const statsRow = document.createElement('div');
@@ -613,7 +613,7 @@
 
   // ---------- shared category picker ----------
   // Each chart uses a menu that lets a user pick categories or category groups.
-  // For the spend view, selection is by leaf category; for category trends, we count selected groups and then roll all of their leaf categories up together.
+  // For the spend view, selection is by leaf category; for Spending Trends, we count selected groups and then roll all of their leaf categories up together.
   let pickerInstanceId = 0;
   function createCategoryPicker({ tree, selected, onDone }) {
     const totalGroups = tree.length;
@@ -814,7 +814,7 @@
       .yct-card-head-left { flex: 1 1 auto; min-width: 0; }
       .yct-card-head-right { flex: 0 0 auto; }
 
-      .yct-title { font-size: 16px; font-weight: 700; margin: 0 0 10px; color: #17181d; }
+      .yct-title { font-size: 1.5em; font-weight: 700; margin: 0 0 8px; color: #17181d; }
       .yct-empty-hint {
         display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600;
         color: #2c2e38; background: #fff8e5; border-left: 4px solid #e3a51a;
@@ -829,7 +829,7 @@
       .yct-stats { display: flex; gap: 26px; flex-wrap: wrap; margin: 0 0 16px; }
       .yct-stat { display: flex; flex-direction: column; gap: 2px; }
       .yct-stat-projected { border-top: 4px solid #000; padding-top: 6px; }
-      .yct-stat-label { font-size: 12px; font-weight: 600; color: #000; text-transform: uppercase; letter-spacing: .04em; }
+      .yct-stat-label { font-size: 14px; font-weight: 600; color: #51504d; }
       .yct-stat-value { font-size: 24px; font-weight: 700; color: #000; line-height: 1.15; }
 
       .yct-legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: #6f7380; margin-bottom: 6px; }
@@ -860,7 +860,7 @@
       .yct-tooltip-label-row { color: #17181d; font-size: 13px; font-weight: 600; }
       .yct-tooltip-amount { color: #17181d; font-size: 14px; font-weight: 700; line-height: 1.2; }
       .yct-grid { stroke: #ece7d9; stroke-width: 1; }
-      .yct-axis { font-size: 10px; fill: #9a9d8c; }
+      .yct-axis { font-size: 10px; fill: #51504d; }
       .yct-month { font-size: 9.5px; fill: #6f7380; font-weight: 600; }
       .yct-end { font-size: 11.5px; font-weight: 700; }
       .yct-net-rule { stroke: #000; stroke-width: 1; }
@@ -981,11 +981,8 @@
   function teardownPanel() {
     if (!panelState) return;
     panelState.root.remove();
-    if (panelState.nativeContainer) {
-      panelState.nativeContainer.style.display = '';
-    }
     panelState = null;
-    log('Left Spending Trends — removed panel, restored native chart.');
+    log('Left Spending Trends — removed panel.');
   }
 
   function createYearSelector(reportYear, availableYears) {
@@ -1019,7 +1016,7 @@
     return yearControl;
   }
 
-  // This menu allows the user to choose and save their default Category Trends groups for the current budget. 
+  // This menu allows the user to choose and save their default Spending Trends groups for the current budget. 
   // Those saved values are reapplied automatically on later visits to this budget's Spending Trends page.
   function createDefaultGroupsButton({ budgetId, categoryTree, onSave }) {
     const wrap = document.createElement('div');
@@ -1045,7 +1042,7 @@
       panel.innerHTML = '';
       const note = document.createElement('div');
       note.className = 'yct-default-groups-note';
-      note.textContent = 'Select the default groups to monitor with the category trend view.';
+      note.textContent = 'Select the default groups to monitor with the Spending Trends view.';
       panel.appendChild(note);
 
       const list = document.createElement('div');
@@ -1124,9 +1121,8 @@
 
     const nativeContainer = findNativeChartContainer();
     if (nativeContainer) {
-      nativeContainer.style.display = 'none';
-      nativeContainer.insertAdjacentElement('afterend', root);
-      log('Found and hid the native Spending Trends chart.');
+      nativeContainer.insertAdjacentElement('beforebegin', root);
+      log('Found native Spending Trends chart — added cumulative charts above it.');
     } else {
       const anchor = document.querySelector('main') || document.body;
       anchor.prepend(root);
@@ -1159,7 +1155,7 @@
           { key: 'income', color: '#20b875', label: 'Income', marker: 'circle' },
           { key: 'totalSpend', color: '#e04b59', label: 'Spend', marker: 'diamond' },
         ],
-        // Y-axis grid spacing for the Income vs. Spend chart: $25k steps.
+        // Fallback target for Y-axis grid spacing when there is no positive data.
         25000,
         `Income vs. Spend ${reportYear}`,
         (finalRow, avg, currentRow) => {
@@ -1208,7 +1204,7 @@
         summary,
         seriesDefs,
         2500,
-        `Category Trends ${reportYear}`,
+        `Spending Trends ${reportYear}`,
         (finalRow, avg) => {
           const totalAvg = activeGroups.reduce((s, g) => s + (avg[g] || 0), 0);
           const totalPace = activeGroups.reduce((s, g) => s + (finalRow[g] || 0), 0);
@@ -1220,7 +1216,7 @@
         chartControls,
         undefined,
         reportYear === new Date().getFullYear(),
-        activeGroups.length === 0 ? 'Start by picking your default Category Trends groups from the selector.' : null
+        activeGroups.length === 0 ? 'Start by picking your default Spending Trends groups from the selector.' : null
       );
     }
     renderCategoryTrendsCard();

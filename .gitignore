@@ -6,6 +6,7 @@ Secret.txt
 # Design source files and raw exports (large, and contain real screenshots of my actual budget)
 YNABCumulativeTrends.psd
 YNABCumulativeTrends.jpg
+Visuals.psd
 *.psd
 
 # OS / editor junk

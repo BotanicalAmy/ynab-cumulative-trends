@@ -6,37 +6,22 @@ Zero-based budgeting accounts for every dollar, but that means investments and s
 
 ## Solution
 
-I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and **Category Trends** above YNAB's native monthly bar chart. These visuals show how income and spending trends build through the year, making trends easier to identify. The category selector lets you exclude savings and investment categories from the Spend total, so they don't mask your real spending patterns. The category trend was motivated by my desire to watch lifestyle creep in key categories, such as spending on eating out and personal services.
+I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and group-based **Spending Trends** above YNAB's native monthly bar chart. These visuals show how income and spending trends build through the year, making trends easier to identify. The category selector lets you exclude savings and investment categories from the Spend total, so they don't mask your real spending patterns. The spending trends view was motivated by my desire to watch lifestyle creep in key categories, such as spending on eating out and personal services.
 
-> The illustrations below use fabricated sample data 
+> The illustrations below use mock sample data 
 
 ## Screenshots
 
-<table>
-<tr>
-<td width="50%">
+![Income vs. Spend chart, cumulative lines for income and spend over the year](screenshots/IncomeVsSpend.jpg)
 
-**Income vs. Spend**
+![Spending Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions](screenshots/SpendingTrends.jpg)
 
-![Income vs. Spend chart, cumulative lines for income and spend over the year](screenshots/income-vs-spend.png)
-
-</td>
-<td width="50%">
-
-**Category Trends**
-
-![Category Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions](screenshots/category-trends.png)
-
-</td>
-<td width="50%"></td>
-</tr>
-</table>
 
 ## Features
 
 - **Cumulative, not monthly.** Both charts run a year-to-date total rather than resetting each month, so trend direction and category creep are obvious at a glance.
-- **Category picker.** A dropdown styled after YNAB's own "All Categories" selector lets you choose exactly which categories count toward Spend, and which category groups get their own line on Category Trends — each with its own color, search box, and Select All/None.
-- **Saved default groups.** Each budget can remember your preferred default Category Trends groups. Use the new button in the chart header to choose defaults, save them per budget, or reset them to none.
+- **Category picker.** A dropdown styled after YNAB's own "All Categories" selector lets you choose exactly which categories count toward Spend, and which category groups get their own line on Spending Trends — each with its own color, search box, and Select All/None.
+- **Saved default groups.** Each budget can remember your preferred Spending Trends groups. Use the new button in the chart header to choose defaults, save them per budget, or reset them to none.
 - **Year selector.** Switch between any year present in your budget. The current year projects the remaining months at your actual average pace (shown as a dashed line); past years show actual months only.
 - **Hover tooltips** with the exact income, spend, and net for any month.
 - **No server, no build step.** A single self-contained userscript — JavaScript and inline SVG, no charting library or backend.
@@ -46,12 +31,12 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 ## Setup
 
-1. Install <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener noreferrer">Tampermonkey</a> in your browser. If you use this on more than one device, repeat the install steps on each device separately.
+1. Install <a href="https://www.tampermonkey.net/">Tampermonkey</a> in your browser. If you use this on more than one device, repeat the install steps on each device separately.
 2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
-3. Install the userscript: **<a href="https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js" target="_blank" rel="noopener noreferrer">Install CumulativeTrends.user.js</a>**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
+3. Install the userscript: **<a href="https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js">Install CumulativeTrends.user.js</a>**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
 4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
-6. The Income vs. Spend and Category Trends are inserted above the native bar chart. The default Category Trends selection is now stored per budget, and you can set it from the new **Default Groups** button in the chart header. If you want to start from scratch, use **Reset** in that selector to clear all saved default groups; the chart will then show a start-by-picking prompt until you choose your first set.
+6. The Income vs. Spend and Spending Trends charts are inserted above the native bar chart. The default Spending Trends selection is stored per budget, and you can set it from the **Default Groups** button in the chart header. If you want to start from scratch, use **Reset** in that selector to clear all saved default groups; the chart will then show a start-by-picking prompt until you choose your first set.
 
 > Note: the userscript and the stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared automatically. This is intentional by design and is a security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being uploaded anywhere.
 
@@ -61,7 +46,7 @@ Tampermonkey checks the install link above for updates automatically, or you can
 
 ## How it works
 
-The script calls YNAB's public <a href="https://api.ynab.com/" target="_blank" rel="noopener noreferrer">API</a> directly from your browser, so there's no server involved. Data is fetched once per year you select, then all the cumulative math and chart rendering happens client-side. Your token stays in Tampermonkey's local storage.
+The script calls YNAB's public <a href="https://api.ynab.com/">API</a> directly from your browser, so there's no server involved. Data is fetched once per year you select, then all the cumulative math and chart rendering happens client-side. Your token stays in Tampermonkey's local storage.
 
 ## Architecture Summary
 
