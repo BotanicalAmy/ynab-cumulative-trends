@@ -8,7 +8,7 @@ Zero-based budgeting accounts for every dollar, but that means investments and s
 
 I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and **Category Trends** above YNAB's native monthly bar chart. These visuals show how income and spending trends build through the year, making trends easier to identify. The category trend was motivated by my desire to watch lifestyle creep in key categories, such as spending on eating out and personal services.
 
-> All figures in the screenshots below are fabricated sample data for illustration purposes.
+> The illustrations below use fabricated sample data 
 
 ## Screenshots
 
