@@ -44,14 +44,16 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 ## Setup
 
-1. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else — it goes straight into the one-time prompt in step 5.
-2. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.
-3. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
-4. Create a new Tampermonkey script, paste in the entire contents of [`CumulativeTrends.js`](CumulativeTrends.js), and save.
-5. Open a YNAB Spending Trends page — `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends` — and reload. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 1.
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.
+2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
+3. Click to install: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)** — Tampermonkey will open its install screen; click **Install**.
+4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else — it goes straight into the one-time prompt in the next step.
+5. Open a YNAB Spending Trends page — `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends` — and reload. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
 6. The native chart is replaced with Income vs. Spend and Category Trends (if the native chart can't be found, these are added above it instead). Category Trends defaults to Enjoyment/Wellness/Subscriptions — change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself (your picks persist until you reload the page).
 
 To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
+
+Tampermonkey checks the install link above for updates automatically, or you can force a check any time from its dashboard (**Utilities** tab → **Check for userscript updates**).
 
 ## How it works
 
