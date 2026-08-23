@@ -6,7 +6,7 @@ Zero-based budgeting accounts for every dollar, but that means investments and s
 
 ## Solution
 
-I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and **Category Trends** above YNAB's native monthly bar chart. These visuals show how income and spending trends build through the year, making trends easier to identify. The category trend was motivated by my desire to watch lifestyle creep in key categories, such as spending on eating out and personal services.
+I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and **Category Trends** above YNAB's native monthly bar chart. These visuals show how income and spending trends build through the year, making trends easier to identify. The category selector lets you exclude savings and investment categories from the Spend total, so they don't mask your real spending patterns. The category trend was motivated by my desire to watch lifestyle creep in key categories, such as spending on eating out and personal services.
 
 > The illustrations below use fabricated sample data 
 
@@ -46,10 +46,10 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.
 2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
-3. Click to install: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)** — Tampermonkey will open its install screen; click **Install**.
-4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else — it goes straight into the one-time prompt in the next step.
-5. Open a YNAB Spending Trends page — `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends` — and reload. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
-6. The native chart is replaced with Income vs. Spend and Category Trends (if the native chart can't be found, these are added above it instead). Category Trends defaults to Enjoyment/Wellness/Subscriptions — change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself (your picks persist until you reload the page).
+3. Click to install: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)**. Tampermonkey will open its install screen; click **Install**.
+4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
+5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
+6. The Income vs. Spend and Category Trends are inserted above the native bar chart. Category Trends defaults to Enjoyment/Wellness/Subscriptions, change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself. Your selections persist until you reload the page.
 
 To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
 
