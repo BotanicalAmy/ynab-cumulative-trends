@@ -48,7 +48,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser. If you use this on more than one device, repeat the install steps on each device separately.
 2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
-3. Install the userscript: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)**. Tampermonkey will open its install prompt; click **Install** to finish installing it.
+3. Install the userscript: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
 4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
 6. The Income vs. Spend and Category Trends are inserted above the native bar chart. The default Category Trends selection is now stored per budget, and you can set it from the new **Default Groups** button in the chart header. If you want to start from scratch, use **Reset** in that selector to clear all saved default groups; the chart will then show a start-by-picking prompt until you choose your first set.
