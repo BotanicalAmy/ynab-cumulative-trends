@@ -12,9 +12,13 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 ## Screenshots
 
-![Income vs. Spend chart, cumulative lines for income and spend over the year](screenshots/IncomeVsSpend.jpg)
+<p align="center">
+	<img src="screenshots/IncomeVsSpend.jpg" alt="Income vs. Spend chart, cumulative lines for income and spend over the year" width="85%">
+</p>
 
-![Spending Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions](screenshots/SpendingTrends.jpg)
+<p align="center">
+	<img src="screenshots/SpendingTrends.jpg" alt="Spending Trends chart, cumulative lines for Enjoyment, Wellness, and Subscriptions" width="85%">
+</p>
 
 
 ## Features
@@ -22,7 +26,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 - **Cumulative, not monthly.** Both charts run a year-to-date total rather than resetting each month, so trend direction and category creep are obvious at a glance.
 - **Category picker.** A dropdown styled after YNAB's own "All Categories" selector lets you choose exactly which categories count toward Spend, and which category groups get their own line on Spending Trends — each with its own color, search box, and Select All/None.
 - **Saved default groups.** Each budget can remember your preferred Spending Trends groups. Use the new button in the chart header to choose defaults, save them per budget, or reset them to none.
-- **Year selector.** Switch between any year present in your budget. The current year projects the remaining months at your actual average pace (shown as a dashed line); past years show actual months only.
+- **Year selector.** Switch between any year present in your budget. The current year projects later months at your actual average pace (shown as a dashed line); past years are limited to actuals.
 - **Hover tooltips** with the exact income, spend, and net for any month.
 - **No server, no build step.** A single self-contained userscript — JavaScript and inline SVG, no charting library or backend.
 - **Dynamic budget detection.** The script reads your budget ID straight from the URL (e.g. `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`), so it works for any budget with no configuration.
@@ -36,7 +40,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 3. Install the userscript: **<a href="https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js">Install CumulativeTrends.user.js</a>**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
 4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
-6. The Income vs. Spend and Spending Trends charts are inserted above the native bar chart. The default Spending Trends selection is stored per budget, and you can set it from the **Default Groups** button in the chart header. If you want to start from scratch, use **Reset** in that selector to clear all saved default groups; the chart will then show a start-by-picking prompt until you choose your first set.
+6. The Income vs. Spend and Spending Trends charts are inserted above the native bar chart. The default Spending Trends selection is stored per budget, set from the **Default Groups** button in the chart header. Use **Reset** in that selector to clear all saved default groups.
 
 > Note: the userscript and the stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared automatically. This is intentional by design and is a security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being uploaded anywhere.
 
