@@ -41,15 +41,18 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 - **No server, no build step.** A single self-contained userscript — JavaScript and inline SVG, no charting library or backend.
 - **Dynamic budget detection.** The script reads your budget ID straight from the URL (e.g. `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`), so it works for any budget with no configuration.
 - **Secure token storage.** Your token is stored locally via Tampermonkey's `GM_setValue`, never written into the script file itself.
+- **Per-device installation.** The script and YNAB API token are stored locally. Install the script separately on each device or browser profile where you use YNAB.
 
 ## Setup
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser.
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser. If you use this on more than one device, repeat the install steps on each device separately.
 2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
 3. Click to install: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)**. Tampermonkey will open its install screen; click **Install**.
 4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
 6. The Income vs. Spend and Category Trends are inserted above the native bar chart. Category Trends defaults to Enjoyment/Wellness/Subscriptions, change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself. Your selections persist until you reload the page.
+
+> Note: the userscript and the stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared automatically. This is intentional by design and is a security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being uploaded anywhere.
 
 To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
 
