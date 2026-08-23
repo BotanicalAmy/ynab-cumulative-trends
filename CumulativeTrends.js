@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YNAB Cumulative Trends
 // @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
-// @version      1.0.0
-// @description  Adds cumulative cumulative (running-total) line charts: Income vs. Spend, and Category Trends above YNAB's monthly Spending Trends
+// @version      1.1.0
+// @description  Adds cumulative (running-total) line charts: Income vs. Spend, and Category Trends above YNAB's monthly Spending Trends
 // @author       Amy Folkestad
 // @match        https://app.ynab.com/*
 // @grant        GM_xmlhttpRequest
@@ -39,6 +39,11 @@
     // Optional fallback CSS selector for YNAB's native chart card. Leave
     // null to use the automatic heading-based search.
     NATIVE_CHART_SELECTOR: null,
+
+    // How long to keep retrying the native-chart search before giving up
+    // and just adding the panel without hiding anything.
+    NATIVE_CHART_WAIT_MS: 4000,
+    NATIVE_CHART_POLL_MS: 200,
 
     // Only activate the panel when the URL path matches this pattern.
     PAGE_PATH_MATCH: /\/reflect\/spending-trends/,
@@ -703,6 +708,10 @@
       }
       .yct-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
       .yct-card-head-left { flex: 1 1 auto; min-width: 0; }
+      .yct-native-chart-notice {
+        font-size: 12px; color: #8a6d3b; background: #fdf6e3; border: 1px solid #f0e2b6;
+        border-radius: 8px; padding: 8px 12px;
+      }
       .yct-card-head-right { flex: 0 0 auto; }
 
       .yct-title { font-size: 16px; font-weight: 700; margin: 0 0 10px; color: #17181d; }
@@ -757,10 +766,6 @@
       .yct-net-rule { stroke: #000; stroke-width: 1; }
       .yct-divider { stroke: #d8d3c4; stroke-width: 1; stroke-dasharray: 3 3; }
       .yct-zone { font-size: 9.5px; fill: #b3ae9d; letter-spacing: .07em; font-weight: 700; }
-      .yct-banner {
-        font-size: 12.5px; color: #6f7380; background: #f5f1e7; border: 1px solid #e6e1d3;
-        border-radius: 8px; padding: 8px 12px; margin-bottom: 4px;
-      }
 
       /* ---- category picker (mimics YNAB's own "All Categories" selector) ---- */
       .yct-picker { position: relative; font-size: 13px; }
@@ -831,6 +836,23 @@
     return heading.parentElement;
   }
 
+  // YNAB's chart can render after our first check, so poll for it briefly
+  // instead of giving up on the first miss.
+  function waitForNativeChartContainer(timeoutMs, intervalMs) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const attempt = () => {
+        const found = findNativeChartContainer();
+        if (found || Date.now() - start >= timeoutMs) {
+          resolve(found);
+          return;
+        }
+        setTimeout(attempt, intervalMs);
+      };
+      attempt();
+    });
+  }
+
   // ---------- route-aware mount and unmount ----------
   let panelState = null; // { root, nativeContainer } while mounted, else null
   let dataPromise = null; // cache the fetch so re-entering the page doesn't re-fetch every time
@@ -896,24 +918,26 @@
     return controls;
   }
 
-  function buildPanel({ catMeta, months, categoryTree, availableYears }, budgetId, reportYear) {
+  async function buildPanel({ catMeta, months, categoryTree, availableYears }, budgetId, reportYear, isStale) {
     injectStyles();
     const root = document.createElement('div');
     root.id = 'yct-root';
 
-    const nativeContainer = findNativeChartContainer();
+    const nativeContainer = await waitForNativeChartContainer(CONFIG.NATIVE_CHART_WAIT_MS, CONFIG.NATIVE_CHART_POLL_MS);
+    if (isStale && isStale()) return;
     if (nativeContainer) {
       nativeContainer.style.display = 'none';
       nativeContainer.insertAdjacentElement('afterend', root);
       log('Found and hid the native Spending Trends chart.');
     } else {
-      const banner = document.createElement('div');
-      banner.className = 'yct-banner';
-      banner.textContent = "Couldn't auto-find YNAB's native chart to hide, so this panel was added here instead.";
-      root.appendChild(banner);
       const anchor = document.querySelector('main') || document.body;
       anchor.prepend(root);
-      warn('Could not find the native chart — added panel at top of main content instead.');
+      const message = "Couldn't auto-find YNAB's native chart to hide, so this panel was added here instead.";
+      warn(message);
+      const notice = document.createElement('div');
+      notice.className = 'yct-native-chart-notice';
+      notice.textContent = message;
+      root.appendChild(notice);
     }
 
     // Set defaults once. Edit CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS to choose yours.
@@ -1036,7 +1060,8 @@
       // page may have navigated away while we were waiting on the fetch
       if (requestId !== panelRequestId || panelState || !onSpendingTrendsPage() || getBudgetIdFromUrl() !== budgetId || selectedYear !== reportYear) return;
       selectedYear = data.reportYear;
-      buildPanel(data, budgetId, data.reportYear);
+      const isStale = () => requestId !== panelRequestId || panelState || !onSpendingTrendsPage() || getBudgetIdFromUrl() !== budgetId;
+      await buildPanel(data, budgetId, data.reportYear, isStale);
       log('Done.');
     } catch (e) {
       console.error('[YNAB Cumulative] Failed:', e);

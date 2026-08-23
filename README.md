@@ -49,7 +49,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 3. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
 4. Create a new Tampermonkey script, paste in the entire contents of [`CumulativeTrends.js`](CumulativeTrends.js), and save.
 5. Open a YNAB Spending Trends page — `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends` — and reload. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 1.
-6. The native chart is replaced with Income vs. Spend and Category Trends. Category Trends defaults to Enjoyment/Wellness/Subscriptions — change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself (your picks persist until you reload the page).
+6. The native chart is replaced with Income vs. Spend and Category Trends (if the native chart can't be found, these are added above it instead). Category Trends defaults to Enjoyment/Wellness/Subscriptions — change the defaults by editing `CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS` near the top of the file, or use the picker on the chart itself (your picks persist until you reload the page).
 
 To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
 
