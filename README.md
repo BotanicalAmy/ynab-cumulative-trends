@@ -44,7 +44,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 > Note: The userscript and stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared. This is an intentional security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being exposed in a shared location.
 
-To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
+To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (i.e. after rotating the token in YNAB) is cleared automatically. You will be re-prompted to enter a fresh API token on your next visit.
 
 Tampermonkey checks the install link above for updates automatically, or you can force a check any time from its dashboard (**Utilities** tab → **Check for userscript updates**).
 
