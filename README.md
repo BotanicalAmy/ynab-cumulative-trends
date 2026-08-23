@@ -46,9 +46,9 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 
 ## Setup
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser. If you use this on more than one device, repeat the install steps on each device separately.
+1. Install <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener noreferrer">Tampermonkey</a> in your browser. If you use this on more than one device, repeat the install steps on each device separately.
 2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
-3. Install the userscript: **[Install CumulativeTrends.user.js](https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js)**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
+3. Install the userscript: **<a href="https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js" target="_blank" rel="noopener noreferrer">Install CumulativeTrends.user.js</a>**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
 4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
 6. The Income vs. Spend and Category Trends are inserted above the native bar chart. The default Category Trends selection is now stored per budget, and you can set it from the new **Default Groups** button in the chart header. If you want to start from scratch, use **Reset** in that selector to clear all saved default groups; the chart will then show a start-by-picking prompt until you choose your first set.
@@ -61,7 +61,7 @@ Tampermonkey checks the install link above for updates automatically, or you can
 
 ## How it works
 
-The script calls YNAB's public [API](https://api.ynab.com/) directly from your browser, so there's no server involved. Data is fetched once per year you select, then all the cumulative math and chart rendering happens client-side. Your token stays in Tampermonkey's local storage.
+The script calls YNAB's public <a href="https://api.ynab.com/" target="_blank" rel="noopener noreferrer">API</a> directly from your browser, so there's no server involved. Data is fetched once per year you select, then all the cumulative math and chart rendering happens client-side. Your token stays in Tampermonkey's local storage.
 
 ## Architecture Summary
 
