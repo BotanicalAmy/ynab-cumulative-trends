@@ -224,6 +224,20 @@
 
   const ALL_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+  // Shared "nice round number" y-axis scaling, used by every chart so grid
+  // lines land on sensible values ($5k, $10k, $25k, ...) instead of the
+  // raw data max.
+  function computeNiceAxis(dataMax, fallbackStep) {
+    const axisBase = dataMax > 0 ? dataMax * 1.12 : Math.max(fallbackStep, 1);
+    const roughStep = axisBase / 6;
+    const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+    const normalizedStep = roughStep / magnitude;
+    const niceFactor = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
+    const axisStep = niceFactor * magnitude;
+    const axisMax = Math.ceil(axisBase / axisStep) * axisStep;
+    return { axisStep, axisMax };
+  }
+
   // Fill the remaining calendar months with average pace when enabled.
   function padToFullYear(actualRows, seriesKeys, allowProjection) {
     const avg = {};
@@ -267,13 +281,7 @@
     const xAt = (i) => padL + xStep * i;
     let dataMax = 0;
     data.forEach((d) => runKeys.forEach((k) => { if (d[k] > dataMax) dataMax = d[k]; }));
-    const axisBase = dataMax > 0 ? dataMax * 1.12 : Math.max(gridStep, 1);
-    const roughStep = axisBase / 6;
-    const magnitude = 10 ** Math.floor(Math.log10(roughStep));
-    const normalizedStep = roughStep / magnitude;
-    const niceFactor = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
-    const axisStep = niceFactor * magnitude;
-    const axisMax = Math.ceil(axisBase / axisStep) * axisStep;
+    const { axisStep, axisMax } = computeNiceAxis(dataMax, gridStep);
     const yAt = (v) => padTop + plotH - (v / axisMax) * plotH;
 
     function formatAxisValue(value) {
@@ -916,7 +924,6 @@
         if (CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.includes(g.name)) g.categories.forEach((c) => categoryTrendsSelection.add(c.id));
       });
     }
-
     const groupColor = buildGroupColorMap(categoryTree);
 
     const incomeMount = document.createElement('div');
