@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YNAB Cumulative Trends
 // @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
-// @version      1.1.0
+// @version      1.1.1
 // @description  Adds cumulative (running-total) line charts, Income vs. Spend and Category Trends, above YNAB's monthly Spending Trends
 // @author       Amy Folkestad
 // @match        https://app.ynab.com/*
