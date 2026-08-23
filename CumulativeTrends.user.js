@@ -499,7 +499,7 @@
 
     function showTooltip(index, event) {
       const row = data[index];
-      tooltip.innerHTML = '';
+      tooltip.replaceChildren();
       const month = document.createElement('div');
       month.className = `yct-tooltip-month${row.projected ? ' yct-tooltip-month-projected' : ''}`;
       month.textContent = ALL_MONTH_NAMES[row.monthIndex] || row.m;
@@ -678,7 +678,7 @@
     function renderList(filterText) {
       const list = panel.querySelector('.yct-picker-list');
       const scrollTop = list.scrollTop;
-      list.innerHTML = '';
+      list.replaceChildren();
       const q = (filterText || '').trim().toLowerCase();
       tree.forEach((g, groupIndex) => {
         const groupMatches = g.name.toLowerCase().includes(q);
@@ -1054,7 +1054,7 @@
     }
 
     function renderPanel() {
-      panel.innerHTML = '';
+      panel.replaceChildren();
       const note = document.createElement('div');
       note.className = 'yct-default-groups-note';
       note.textContent = 'Select the default groups to monitor with the Spending Trends view.';
@@ -1160,7 +1160,7 @@
     });
     const incomeChartControls = createChartControls(reportYear, incomePicker, availableYears);
     function renderIncomeCard() {
-      incomeMount.innerHTML = '';
+      incomeMount.replaceChildren();
       const summary = computeSummary(months, spendSelection, new Set(), catMeta, categoryTree);
       const chartControls = incomeChartControls;
       drawCumulativeChart(
@@ -1209,7 +1209,7 @@
     });
     const categoryTrendsChartControls = createChartControls(reportYear, categoryTrendsPicker, availableYears, defaultGroupsBtn);
     function renderCategoryTrendsCard() {
-      categoryTrendsMount.innerHTML = '';
+      categoryTrendsMount.replaceChildren();
       const summary = computeSummary(months, new Set(), categoryTrendsSelection, catMeta, categoryTree);
       const activeGroups = getActiveGroups(categoryTree, categoryTrendsSelection);
       const seriesDefs = activeGroups.map((name) => ({ key: name, color: groupColor[name], label: name, marker: 'circle' }));
