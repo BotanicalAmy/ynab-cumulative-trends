@@ -1,48 +1,30 @@
+// ==UserScript==
+// @name         YNAB Cumulative Trends
+// @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
+// @version      1.0.0
+// @description  Adds cumulative cumulative (running-total) line charts: Income vs. Spend, and Category Trends above YNAB's monthly Spending Trends
+// @author       Amy Folkestad
+// @match        https://app.ynab.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_registerMenuCommand
+// @connect      api.ynab.com
+// ==/UserScript==
+
 /*
-  YNAB Cumulative Trends
-  https://github.com/BotanicalAmy/ynab-cumulative-trends
-
-  This file runs as a plain page script, loaded on demand by a bookmarklet
-  rather than an extension like Tampermonkey. See the bookmarklet snippet
-  and setup instructions in the repo's README.
-
-  WHAT IT DOES: on a YNAB Spending Trends page, adds cumulative (running
-  total) line charts -- Income vs. Spend, and Category Trends -- above (or
-  in place of) YNAB's native monthly chart.
-
   SETUP:
-      1. In YNAB, go to Account Settings -> Developer Settings -> New Token, and copy it.
-      2. Drag the bookmarklet from the README into your bookmarks bar (or create a bookmark
-         manually and paste the bookmarklet's javascript: URL as its address).
-      3. Open a YNAB Spending Trends URL such as https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends,
-         then click the bookmarklet. The script reads the budget ID from the URL, so no ID
-         needs to be entered here.
-      4. The first time it runs, paste the token from step 1 into the one-time prompt. It's
-         stored in this browser's localStorage for app.ynab.com, never written into this file.
-         Use the small "Reset YNAB API Token" link the panel adds to replace it, or it will be
-         cleared automatically after an API 401 response.
-      5. Income vs. Spend and Category Trends appear. The year dropdown defaults to the current
-         year and lists every year found in the budget data. The current year shows projections
-         for remaining months; earlier years show actual months only. Use each chart's category
-         picker to change its selection, and hover over any month to see cumulative values plus
-         actual or projected net.
-      6. Since this loads fresh from GitHub each time rather than staying installed, click the
-         bookmarklet again on any later visit (including after a page reload or in a new tab).
+      1. In YNAB, go to Account Settings -> Developer Settings -> New Token, and copy it to a secure location.
+      2. Create a new Tampermonkey script, paste this entire file's contents into it, and save.
+      3. Open a YNAB Spending Trends URL such as https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends. The script reads the budget ID from that URL, so no ID needs to be entered here.
+      4. Reload the page. The first time the script runs, paste the token into the one-time prompt. It is stored locally with Tampermonkey's GM_setValue and never written into this file. Use "Reset YNAB API Token" from the Tampermonkey menu to replace it, or it will be cleared automatically after an API 401 response.
+      5. The script replaces YNAB's native chart with Income vs. Spend and Category Trends. The year dropdown defaults to the current year and lists every year found in the budget data. The current year shows projections for remaining months; earlier years show actual months only. Use each chart's category picker to change its selection, and hover over any month to see cumulative values plus actual or projected net.
 */
 
 (function () {
   'use strict';
-
-  // A bookmarklet re-injects this entire file every time it's clicked, so
-  // running it twice on the same page (without a reload) would otherwise
-  // build a second, stacked panel. Guard against that with a flag on
-  // `window`, which -- unlike this IIFE's own local state -- persists
-  // across separate injections of the script into the same page.
-  if (window.__yctLoaded) {
-    console.log('[YNAB Cumulative] Already running on this page. Reload the page if you want to fully restart it.');
-    return;
-  }
-  window.__yctLoaded = true;
 
   const CONFIG = {
     // Edit these names to choose the default Category Trends groups. They only
@@ -73,23 +55,21 @@
   }
 
   // ---------- token storage (never in this file) ----------
-  // Stored in this browser's localStorage, scoped to app.ynab.com. No
-  // extension involved, so no GM_* storage API is available here.
   const TOKEN_KEY = 'ynab_cumulative_pat';
 
   function getStoredToken() {
-    return localStorage.getItem(TOKEN_KEY);
+    return GM_getValue(TOKEN_KEY, null);
   }
 
   // Show the prompt only when no token is stored or a token was cleared.
   function promptForToken() {
     const entered = window.prompt(
       'Paste your YNAB Personal Access Token (YNAB → Account Settings → Developer Settings → New Token).\n\n' +
-      "It will be stored in this browser's localStorage, never written into this script file."
+      'It will be stored locally via Tampermonkey (GM_setValue), never written into this script file.'
     );
     if (entered && entered.trim()) {
       const token = entered.trim();
-      localStorage.setItem(TOKEN_KEY, token);
+      GM_setValue(TOKEN_KEY, token);
       log('Token saved.');
       return token;
     }
@@ -104,30 +84,36 @@
   }
 
   function clearToken() {
-    localStorage.removeItem(TOKEN_KEY);
+    GM_deleteValue(TOKEN_KEY);
   }
 
-  async function apiGet(path) {
-    const token = getStoredToken();
-    let res;
-    try {
-      res = await fetch(API_BASE + path, {
+  GM_registerMenuCommand('Reset YNAB API Token', () => {
+    clearToken();
+    log('Token cleared. Reloading so you can enter a new one…');
+    location.reload();
+  });
+
+  function apiGet(path) {
+    return new Promise((resolve, reject) => {
+      const token = getStoredToken();
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: API_BASE + path,
         headers: { Authorization: 'Bearer ' + token },
+        onload: (res) => {
+          if (res.status >= 200 && res.status < 300) {
+            resolve(JSON.parse(res.responseText).data);
+          } else if (res.status === 401) {
+            // Clear rejected tokens so the next visit prompts again.
+            clearToken();
+            reject(new Error(`YNAB API 401 on ${path} — token was rejected and has been cleared. Reload the page to enter a new one.`));
+          } else {
+            reject(new Error(`YNAB API ${res.status} on ${path}: ${res.responseText}`));
+          }
+        },
+        onerror: () => reject(new Error('Network error calling ' + path)),
       });
-    } catch (err) {
-      throw new Error('Network error calling ' + path);
-    }
-    if (res.status === 401) {
-      // Clear rejected tokens so the next visit prompts again.
-      clearToken();
-      throw new Error(`YNAB API 401 on ${path} — token was rejected and has been cleared. Click the bookmarklet again to enter a new one.`);
-    }
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`YNAB API ${res.status} on ${path}: ${body}`);
-    }
-    const json = await res.json();
-    return json.data;
+    });
   }
 
   async function fetchYearData(budgetId, reportYear) {
@@ -697,10 +683,7 @@
   }
 
   function injectStyles() {
-    if (document.getElementById('yct-styles')) return;
-    const styleEl = document.createElement('style');
-    styleEl.id = 'yct-styles';
-    styleEl.textContent = `
+    GM_addStyle(`
       #yct-root {
         font-family: system-ui, -apple-system, sans-serif;
         display: flex; flex-direction: column; gap: 20px;
@@ -824,13 +807,7 @@
       .yct-picker-cancel:hover { background: #e6e7ec; }
       .yct-picker-done { background: #2a5fd6; color: #fff; }
       .yct-picker-done:hover { background: #234ec0; }
-      .yct-reset-link {
-        align-self: flex-end; font-family: inherit; font-size: 11.5px; font-weight: 600;
-        color: #9a9d8c; background: none; border: none; cursor: pointer; padding: 0;
-      }
-      .yct-reset-link:hover { color: #6f7380; text-decoration: underline; }
-    `;
-    document.head.appendChild(styleEl);
+    `);
   }
 
   function findNativeChartContainer() {
@@ -930,18 +907,6 @@
       anchor.prepend(root);
       log('Native chart not found — added panel above the page content instead.');
     }
-
-    const resetLink = document.createElement('button');
-    resetLink.type = 'button';
-    resetLink.className = 'yct-reset-link';
-    resetLink.textContent = 'Reset YNAB API Token';
-    resetLink.addEventListener('click', () => {
-      clearToken();
-      teardownPanel();
-      log('Token cleared.');
-      ensurePanel();
-    });
-    root.appendChild(resetLink);
 
     // Set defaults once. Edit CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS to choose yours.
     if (!spendSelection) spendSelection = new Set(allLeafIds(categoryTree));
@@ -1049,7 +1014,7 @@
     }
 
     if (!getOrPromptToken()) {
-      warn('No personal access token set — click the bookmarklet again to be prompted.');
+      warn('No personal access token set — reload the page to be prompted again, or use "Reset YNAB API Token" from the Tampermonkey menu.');
       return;
     }
     try {
