@@ -19,33 +19,21 @@
 // @license      MIT
 // ==/UserScript==
 
-/*
-  SETUP:
-      1. In YNAB, go to Account Settings -> Developer Settings -> New Token, and copy it to a secure location.
-      2. Create a new Tampermonkey script, paste this entire file's contents into it, and save.
-      3. Open a YNAB Spending Trends URL such as https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends. The script reads the budget ID from that URL, so no ID needs to be entered here.
-      4. Reload the page. The first time the script runs, paste the token into the one-time prompt. It is stored locally with Tampermonkey's GM_setValue and never written into this file. Use "Reset YNAB API Token" from the Tampermonkey menu to replace it, or it will be cleared automatically after an API 401 response.
-      5. The script replaces YNAB's native chart with Income vs. Spend and Category Trends. The year dropdown defaults to the current year and lists every year found in the budget data. The current year shows projections for remaining months; earlier years show actual months only. Use each chart's category picker to change its selection, and hover over any month to see cumulative values plus actual or projected net.
-*/
-
 (function () {
   'use strict';
 
   const CONFIG = {
     // The script starts with no default Category Trends groups selected.
-    // Users can pick their own defaults from the chart header, and those choices
-    // are saved per budget in Tampermonkey local storage.
+    // Users can pick their own defaults from the chart header, and those choices are saved per budget in Tampermonkey local storage.
     DEFAULT_CATEGORY_TRENDS_GROUPS: [],
 
-    // These groups are internal YNAB bookkeeping, not real spending. Keep
-    // them out of the picker and all category-based spending totals.
+    // These groups are internal YNAB bookkeeping, not real spending. Keep them out of the picker and all category-based spending totals.
     SYSTEM_GROUPS: ['Internal Master Category', 'Credit Card Payments'],
 
-    // Optional fallback CSS selector for YNAB's native chart card. Leave
-    // null to use the automatic heading-based search.
+    // Optional fallback CSS selector for YNAB's native chart card. Leave null to use the automatic heading-based search.
     NATIVE_CHART_SELECTOR: null,
 
-    // Only activate the panel when the URL path matches this pattern.
+    // Only activate these custom charts on the spending trends page
     PAGE_PATH_MATCH: /\/reflect\/spending-trends/,
   };
 
@@ -53,10 +41,11 @@
   const DEFAULT_GROUPS_STORAGE_PREFIX = 'ynab_cumulative_default_groups_';
   const log = (...args) => console.log('[YNAB Cumulative]', ...args);
   const warn = (...args) => console.warn('[YNAB Cumulative]', ...args);
-  const BUDGET_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reflect\/spending-trends(?:\/|$)/i;
 
-  // Read the active YNAB budget id from the current URL so the script can
-  // fetch data for the correct budget without asking the user to enter it.
+  // Match the YNAB budget UUID expression from the URL path.
+  const BUDGET_PATH = /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+
+  // Read the active YNAB budget id from the current URL so the script can fetch data for the correct budget without asking the user to enter it.
   function getBudgetIdFromUrl() {
     const match = location.pathname.match(BUDGET_PATH);
     return match ? match[1] : null;
@@ -69,7 +58,7 @@
     return GM_getValue(TOKEN_KEY, null);
   }
 
-  // Show the prompt only when no token is stored or a token was cleared.
+  // Show the API/token prompt only when no token is stored or a token was cleared.
   function promptForToken() {
     const entered = window.prompt(
       'Paste your YNAB Personal Access Token (YNAB → Account Settings → Developer Settings → New Token).\n\n' +
@@ -84,7 +73,7 @@
     return null;
   }
 
-  // Return the stored token or prompt once when no token exists.
+  // Return the stored API token or prompt once when no token exists.
   function getOrPromptToken() {
     const stored = getStoredToken();
     if (stored) return stored;
@@ -95,8 +84,8 @@
     GM_deleteValue(TOKEN_KEY);
   }
 
-  // The default Category Trends groups are stored per budget in Tampermonkey
-  // local storage so the same user can keep different defaults for different budgets.
+  // Store the default Category Trends groups in Tampermonkey local storage so the user saves their preferences 
+  // Saved per unique budget ID to handle users with multiple budgets
   function getDefaultGroupsKey(budgetId) {
     return `${DEFAULT_GROUPS_STORAGE_PREFIX}${budgetId}`;
   }
@@ -136,8 +125,7 @@
     return selected;
   }
 
-  // Expose a simple Tampermonkey menu action so the user can replace an
-  // expired or rejected YNAB token without editing this file.
+  // Expose a simple Tampermonkey menu action so the user can replace an expired or rejected YNAB token without editing this file.
   GM_registerMenuCommand('Reset YNAB API Token', () => {
     clearToken();
     log('Token cleared. Reloading so you can enter a new one…');
@@ -169,16 +157,14 @@
     });
   }
 
-  // Fetch the current budget snapshot and reshape it into the normalized data
-  // model used by the charts: a category tree for selectors and month-level
-  // totals for cumulative calculations.
+  // Fetch the current budget snapshot and reorganize the data to match what is used by the charts: 
+  // a category tree for selectors and month-level totals for cumulative calculations, then sum cumulative values across months
   async function fetchYearData(budgetId, reportYear) {
     // One budget request includes each month's per-category activity.
     const budgetData = await apiGet(`/budgets/${encodeURIComponent(budgetId)}`);
     const budget = budgetData.budget;
 
-    // This endpoint returns bare category groups. Categories are in the
-    // separate flat `categories[]` array and point back to their group ID.
+    // This endpoint returns bare category groups. Categories are in the separate flat `categories[]` array and point back to their group ID.
     const groupNameById = {};
     budget.category_groups.forEach((g) => { groupNameById[g.id] = g.name; });
     const catMeta = {};
@@ -218,8 +204,7 @@
         month: m.month,
         year: Number(m.month.slice(0, 4)),
         monthIndex: Number(m.month.slice(5, 7)) - 1,
-        // Store spending in dollars. Refunds remain negative and system
-        // categories are excluded because they are not in the picker tree.
+        // Store spending in dollars. Refunds remain negative and system categories are excluded because they are not in the picker tree.
         categories: (m.categories || [])
           .filter((c) => catMeta[c.id])
           .map((c) => ({ id: c.id, spend: -(c.activity / 1000) })),
@@ -238,15 +223,14 @@
     return ids;
   }
 
-  // Build the active Category Trends group list from the selected leaf ids. Each
-  // group becomes a separate series in the cumulative chart.
+  // Build the active Category Trends group list from the selected leaf ids. 
+  // Each group becomes a separate series in the cumulative chart.
   function getActiveGroups(categoryTree, selectedSet) {
     return categoryTree.filter((g) => g.categories.some((c) => selectedSet.has(c.id))).map((g) => g.name);
   }
 
-  // Convert the raw month data into the values needed by the two cumulative
-  // charts: total spend for the Income vs. Spend view and grouped spend totals for
-  // the Category Trends view.
+  // Convert the raw month data into the values needed by the two cumulative charts:
+  // total spend for the Income vs. Spend view and grouped spend totals for the Category Trends view.
   function computeSummary(months, spendSet, categoryTrendsSet, catMeta, categoryTree) {
     const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const activeGroups = getActiveGroups(categoryTree, categoryTrendsSet);
@@ -271,8 +255,7 @@
   }
 
   // ---------- charting (plain SVG) ----------
-  // The app renders the cumulative charts manually with SVG instead of a JS
-  // chart library so it can stay lightweight and match YNAB's styling more closely.
+  // The app renders the cumulative charts manually with an SVG chart library so it can stay lightweight and match YNAB's styling
   const ns = 'http://www.w3.org/2000/svg';
   function el(tag, attrs) {
     const e = document.createElementNS(ns, tag);
@@ -321,9 +304,7 @@
 
   const ALL_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-  // Shared "nice round number" y-axis scaling, used by every chart so grid
-  // lines land on sensible values ($5k, $10k, $25k, ...) instead of the
-  // raw data max.
+  // Shared "nice round number" y-axis scaling, used by every chart so grid lines land on sensible values ($5k, $10k, $25k, ...), not weird decimals 
   function computeNiceAxis(dataMax, fallbackStep) {
     const axisBase = dataMax > 0 ? dataMax * 1.12 : Math.max(fallbackStep, 1);
     const roughStep = axisBase / 6;
@@ -335,7 +316,7 @@
     return { axisStep, axisMax };
   }
 
-  // Fill the remaining calendar months with average pace when enabled.
+  // Fill the remaining calendar months with average pace when enabled (projected values for future months)
   function padToFullYear(actualRows, seriesKeys, allowProjection) {
     const avg = {};
     seriesKeys.forEach((k) => {
@@ -622,8 +603,7 @@
     mountEl.appendChild(wrap);
   }
 
-  // Give each category group a stable color so the same group stays the same
-  // color even if the selected set changes between renders.
+  // Give each category group a stable color so the same group stays the same color even if the selected set changes between renders.
   const GROUP_PALETTE = ['#2d7ff9', '#f26b38', '#20b875', '#e3a51a', '#d94f9d', '#6074d9', '#e04b59', '#62b642', '#9a63d8', '#20a6b8'];
   function buildGroupColorMap(categoryTree) {
     const map = {};
@@ -633,8 +613,7 @@
 
   // ---------- shared category picker ----------
   // Each chart uses a menu that lets a user pick categories or category groups.
-  // For the spend view, selection is by leaf category; for category trends, we
-  // count selected groups and then roll all of their leaf categories up together.
+  // For the spend view, selection is by leaf category; for category trends, we count selected groups and then roll all of their leaf categories up together.
   let pickerInstanceId = 0;
   function createCategoryPicker({ tree, selected, onDone }) {
     const totalGroups = tree.length;
@@ -742,8 +721,7 @@
     function applyChanges() {
       applied = new Set(draft);
       updateButton();
-      // onDone re-renders the chart card, which detaches/reattaches this
-      // picker's DOM and would otherwise reset the list's scroll position.
+      // onDone re-renders the chart card, which detaches/reattaches this picker's DOM and would otherwise reset the list's scroll position.
       const list = panel.querySelector('.yct-picker-list');
       const scrollTop = list ? list.scrollTop : 0;
       onDone(new Set(applied));
@@ -800,8 +778,7 @@
     return wrap;
   }
 
-  // The app injects a small style sheet so the custom controls and SVG chart
-  // match YNAB's look without depending on external CSS or libraries.
+  // The app injects a small style sheet so the custom controls and SVG chart match YNAB's look without depending on external CSS or libraries.
   function injectStyles() {
     GM_addStyle(`
       :root {
@@ -984,9 +961,8 @@
   }
 
   // ---------- route-aware mount and unmount ----------
-  // These values keep a single custom panel mounted while the user stays on the
-  // spending-trends route, and they cache budget data so the app does not refetch
-  // the same information when the user changes only the selected year.
+  // These values keep a single custom panel mounted while the user stays on the spending-trends route, and they cache budget data 
+  // so the app does not unnecessarily refetch the same information when the user changes only the selected year.
   let panelState = null; // { root, nativeContainer } while mounted, else null
   let dataPromise = null; // cache the fetch so re-entering the page doesn't re-fetch every time
   let dataBudgetId = null;
@@ -994,7 +970,7 @@
   let selectedYear = new Date().getFullYear();
   let panelRequestId = 0;
 
-  // Selections last until a full reload. null means defaults are not set yet.
+  // Selections last until a full reload, null means defaults are not set yet.
   let spendSelection = null;
   let categoryTrendsSelection = null;
 
@@ -1043,9 +1019,8 @@
     return yearControl;
   }
 
-  // This menu allows the user to choose and save their default Category Trends
-  // groups for the current budget. Those saved values are reapplied automatically
-  // on later visits to this budget's Spending Trends page.
+  // This menu allows the user to choose and save their default Category Trends groups for the current budget. 
+  // Those saved values are reapplied automatically on later visits to this budget's Spending Trends page.
   function createDefaultGroupsButton({ budgetId, categoryTree, onSave }) {
     const wrap = document.createElement('div');
     wrap.className = 'yct-default-groups-wrap';
@@ -1129,8 +1104,8 @@
     return wrap;
   }
 
-  // Compose the shared header controls for each chart: year selector, category
-  // picker, and any optional budget-specific control like "Default Groups".
+  // Compose the shared header controls for each chart: 
+  // year selector, category picker, and any optional budget-specific control like "Default Groups".
   function createChartControls(reportYear, picker, availableYears, extraControl = null) {
     const controls = document.createElement('div');
     controls.className = 'yct-chart-controls';
@@ -1184,6 +1159,7 @@
           { key: 'income', color: '#20b875', label: 'Income', marker: 'circle' },
           { key: 'totalSpend', color: '#e04b59', label: 'Spend', marker: 'diamond' },
         ],
+        // Y-axis grid spacing for the Income vs. Spend chart: $25k steps.
         25000,
         `Income vs. Spend ${reportYear}`,
         (finalRow, avg, currentRow) => {
@@ -1252,8 +1228,7 @@
     panelState = { root, nativeContainer, budgetId };
   }
 
-  // Ensure the custom panel exists only on the Spending Trends page and reuses
-  // the cached budget data unless the user changed years or budgets.
+  // Ensure the custom panel exists only on the Spending Trends page and reuses the cached budget data unless the user changed years or budgets.
   async function ensurePanel() {
     const budgetId = getBudgetIdFromUrl();
     const reportYear = selectedYear;
