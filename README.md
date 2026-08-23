@@ -42,7 +42,7 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
 6. The Income vs. Spend and Spending Trends charts are inserted above the native bar chart. The default Spending Trends selection is stored per budget, set from the **Default Groups** button in the chart header. Use **Reset** in that selector to clear all saved default groups.
 
-> Note: the userscript and the stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared automatically. This is intentional by design and is a security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being uploaded anywhere.
+> Note: The userscript and stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared. This is an intentional security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being exposed in a shared location.
 
 To change or clear the stored token, use **Reset YNAB API Token** from the Tampermonkey extension menu (click the Tampermonkey icon while on a YNAB tab). A rejected token (for example, after rotating it in YNAB) is also cleared automatically, and you'll be re-prompted on your next visit.
 
