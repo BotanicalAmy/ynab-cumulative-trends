@@ -117,10 +117,9 @@
     const saved = getSavedDefaultGroups(budgetId);
     if (saved !== null) {
       const valid = saved.filter((name) => categoryTree.some((g) => g.name === name));
-      if (valid.length === saved.length) return valid;
       return valid;
     }
-    return CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.slice();
+    return [];
   }
 
   function idsForGroupNames(categoryTree, groupNames) {
@@ -747,8 +746,8 @@
       .yct-year-control { display: flex; align-items: center; gap: 4px; }
       .yct-year-label { margin-right: 4px; color: #6f7380; font-size: 12px; font-weight: 700; text-transform: uppercase; }
       .yct-year-select {
-        font-family: inherit; font-size: 13px; font-weight: 600; color: #2a5fd6;
-        background: #eef3fd; border: 1px solid #d7e2f8; border-radius: 8px;
+        font-family: inherit; font-size: 13px; font-weight: 600; color: #4e57f8;
+        background: #eef3fd; border: 1px solid #dfe7ff; border-radius: 8px;
         padding: 7px 28px 7px 11px; cursor: pointer;
       }
       .yct-card {
@@ -818,7 +817,7 @@
       .yct-default-groups-btn,
       .yct-default-groups-save,
       .yct-default-groups-reset {
-        font-family: inherit; font-size: 13px; font-weight: 600; color: #6074d9;
+        font-family: inherit; font-size: 13px; font-weight: 600; color: #4e57f8;
         background: #edf2ff; border: 1px solid #dfe7ff; border-radius: 8px;
         padding: 7px 12px; cursor: pointer; white-space: nowrap;
       }
@@ -832,12 +831,15 @@
         width: 240px; background: #fff; border: 1px solid #e2e5ec; border-radius: 10px;
         box-shadow: 0 8px 28px rgba(20, 24, 40, 0.16); display: flex; flex-direction: column; overflow: hidden;
       }
+      .yct-default-groups-note {
+        padding: 10px 12px 8px; font-size: 12px; line-height: 1.4; color: #5b6170; border-bottom: 1px solid #ece9e0;
+      }
       .yct-default-groups-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 8px 0; }
       .yct-default-groups-row {
         display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: #2c2e38;
       }
       .yct-default-groups-row:hover { background: #f7f8fb; }
-      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #6074d9; }
+      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4e57f8; }
       .yct-default-groups-footer {
         display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #ece9e0; padding: 9px 12px;
       }
@@ -860,7 +862,7 @@
       .yct-picker-row:hover { background: #f7f8fb; }
       .yct-picker-row-group { font-weight: 700; }
       .yct-picker-row-cat { padding-left: 30px; font-weight: 400; }
-      .yct-picker-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #2a5fd6; flex-shrink: 0; }
+      .yct-picker-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4e57f8; flex-shrink: 0; }
       .yct-picker-row label { flex: 1 1 auto; cursor: pointer; }
       .yct-picker-hidden-tag { font-size: 10.5px; color: #9a9d8c; font-weight: 600; white-space: nowrap; }
       .yct-picker-footer {
@@ -869,7 +871,7 @@
       }
       .yct-picker-footer-links { display: flex; gap: 12px; }
       .yct-picker-link {
-        font-family: inherit; font-size: 12px; font-weight: 600; color: #2a5fd6;
+        font-family: inherit; font-size: 12px; font-weight: 600; color: #4e57f8;
         background: none; border: none; cursor: pointer; padding: 2px;
       }
       .yct-picker-link:hover { text-decoration: underline; }
@@ -880,8 +882,8 @@
       }
       .yct-picker-cancel { background: #f0f1f4; color: #4a4d59; }
       .yct-picker-cancel:hover { background: #e6e7ec; }
-      .yct-picker-done { background: #2a5fd6; color: #fff; }
-      .yct-picker-done:hover { background: #234ec0; }
+      .yct-picker-done { background: #4e57f8; color: #fff; }
+      .yct-picker-done:hover { background: #424deb; }
     `);
   }
 
@@ -976,6 +978,10 @@
 
     function renderPanel() {
       panel.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'yct-default-groups-note';
+      note.textContent = 'Pick the default groups to display when this budget loads.';
+      panel.appendChild(note);
       const list = document.createElement('div');
       list.className = 'yct-default-groups-list';
       categoryTree.forEach((group) => {
@@ -1003,11 +1009,11 @@
       const resetBtn = document.createElement('button');
       resetBtn.type = 'button';
       resetBtn.className = 'yct-default-groups-reset';
-      resetBtn.textContent = 'Reset to Built-In';
+      resetBtn.textContent = 'Reset';
       resetBtn.addEventListener('click', () => {
         clearSavedDefaultGroups(budgetId);
-        draft = new Set(CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS);
-        onSave(CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.slice());
+        draft = new Set();
+        onSave([]);
         panel.style.display = 'none';
       });
 
@@ -1156,7 +1162,7 @@
         chartControls,
         undefined,
         reportYear === new Date().getFullYear(),
-        activeGroups.length === 0 ? 'Pick your default Category Trends groups from the selector.' : null
+        activeGroups.length === 0 ? 'Start by picking your default Category Trends groups from the selector.' : null
       );
     }
     renderCategoryTrendsCard();
