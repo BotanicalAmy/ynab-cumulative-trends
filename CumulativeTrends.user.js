@@ -379,13 +379,21 @@
         const item = document.createElement('span');
         item.className = 'yct-legend-item';
         const swatchShape = s.marker === 'diamond' ? 'yct-swatch-diamond' : 'yct-swatch-circle';
-        item.innerHTML = `<span class="yct-line-swatch" style="background:${s.color}"></span><span class="yct-swatch ${swatchShape}" style="background:${s.color}"></span>${s.label}`;
+        const lineSwatch = document.createElement('span');
+        lineSwatch.className = 'yct-line-swatch';
+        lineSwatch.style.background = s.color;
+        const dotSwatch = document.createElement('span');
+        dotSwatch.className = `yct-swatch ${swatchShape}`;
+        dotSwatch.style.background = s.color;
+        item.append(lineSwatch, dotSwatch, s.label);
         legend.appendChild(item);
       });
       if (projectionState.hasProjection) {
         const proj = document.createElement('span');
         proj.className = 'yct-legend-item';
-        proj.innerHTML = `<span class="yct-line-swatch yct-line-dashed"></span>Projected pace`;
+        const projSwatch = document.createElement('span');
+        projSwatch.className = 'yct-line-swatch yct-line-dashed';
+        proj.append(projSwatch, 'Projected pace');
         legend.appendChild(proj);
       }
       return legend;
@@ -542,7 +550,14 @@
       makeStats(data[n - 1], avg, currentRow).forEach((s) => {
         const tile = document.createElement('div');
         tile.className = `yct-stat ${s.className || ''}`;
-        tile.innerHTML = `<div class="yct-stat-label">${s.label}</div><div class="yct-stat-value" style="${s.color ? 'color:' + s.color : ''}">${s.value}</div>`;
+        const labelEl = document.createElement('div');
+        labelEl.className = 'yct-stat-label';
+        labelEl.textContent = s.label;
+        const valueEl = document.createElement('div');
+        valueEl.className = 'yct-stat-value';
+        if (s.color) valueEl.style.color = s.color;
+        valueEl.textContent = s.value;
+        tile.append(labelEl, valueEl);
         statsRow.appendChild(tile);
       });
       headLeft.appendChild(statsRow);
