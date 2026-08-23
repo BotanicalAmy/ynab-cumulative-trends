@@ -24,22 +24,22 @@ I wrote a Tampermonkey userscript that adds cumulative **Income vs. Spend** and 
 ## Features
 
 - **Cumulative, not monthly.** Both charts run a year-to-date total rather than resetting each month, so trend direction and category creep are obvious at a glance.
-- **Category picker.** A dropdown styled after YNAB's own "All Categories" selector lets you choose exactly which categories count toward Spend, and which category groups get their own line on Spending Trends — each with its own color, search box, and Select All/None.
-- **Saved default groups.** Each budget can remember your preferred Spending Trends groups. Use the new button in the chart header to choose defaults, save them per budget, or reset them to none.
+- **Group and category picker.** A dropdown styled after YNAB's own "All Categories" selector lets you choose exactly which categories count toward Spend, and which category groups get their own line on Spending Trends.
+- **Saved default groups.** Each budget can remember your preferred Spending Trends groups. Use the button in the chart header to choose defaults, save them per budget, or reset your selections.
 - **Year selector.** Switch between any year present in your budget. The current year projects later months at your actual average pace (shown as a dashed line); past years are limited to actuals.
 - **Hover tooltips** with the exact income, spend, and net for any month.
-- **No server, no build step.** A single self-contained userscript — JavaScript and inline SVG, no charting library or backend.
-- **Dynamic budget detection.** The script reads your budget ID straight from the URL (e.g. `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`), so it works for any budget with no configuration.
+- **No server, no build step.** A single self-contained userscript: JavaScript and inline SVG, no charting library or backend.
+- **Dynamic budget detection.** The script reads your budget ID straight from the URL (e.g. `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`) to work without configuration.
 - **Secure token storage.** Your token is stored locally via Tampermonkey's `GM_setValue`, never written into the script file itself.
 - **Per-device installation.** The script and YNAB API token are stored locally. Install the script separately on each device or browser profile where you use YNAB.
 
 ## Setup
 
-1. Install <a href="https://www.tampermonkey.net/">Tampermonkey</a> in your browser. If you use this on more than one device, repeat the install steps on each device separately.
-2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions, or scripts won't run).
+1. Install <a href="https://www.tampermonkey.net/">Tampermonkey</a> in your browser. If used on more than one device, repeat the install steps on each device separately.
+2. Enable **Allow User Scripts** for Tampermonkey at `chrome://extensions` (required on recent Chrome versions to enable scripts to run).
 3. Install the userscript: **<a href="https://raw.githubusercontent.com/BotanicalAmy/ynab-cumulative-trends/main/CumulativeTrends.user.js">Install CumulativeTrends.user.js</a>**. Tampermonkey will prompt you to confirm the install; click **Install** to finish.
-4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. You won't need to save it anywhere else, this gets pasted into the one-time prompt in the next step.
-5. Open a YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page, and you'll get a one-time browser prompt for the token from step 4.
+4. In YNAB, go to **Account Settings → Developer Settings → New Token** and copy it. Paste this key into the prompt in the next step.
+5. Open the YNAB Spending Trends page: `https://app.ynab.com/<BUDGET_ID>/reflect/spending-trends`. The script only runs on this page. You'll get the browser prompt to enter the API token on this URL.
 6. The Income vs. Spend and Spending Trends charts are inserted above the native bar chart. The default Spending Trends selection is stored per budget, set from the **Default Groups** button in the chart header. Use **Reset** in that selector to clear all saved default groups.
 
 > Note: The userscript and stored YNAB token are intentionally local to the browser profile on each device. Even if Tampermonkey syncs settings across devices, the script and API token are not shared. This is an intentional security feature: the script calls YNAB using your browser, and the token remains in that browser's local Tampermonkey storage rather than being exposed in a shared location.
@@ -56,15 +56,15 @@ The script calls YNAB's public <a href="https://api.ynab.com/">API</a> directly 
 
 The userscript is intentionally small and self-contained, with a few clear layers that work together:
 
-- Route and lifecycle layer: when the page is on a YNAB Spending Trends URL, the script mounts a custom panel above the native chart and removes it again when the user leaves the page. It also watches for routing changes so the UI stays in sync without a full page reload.
-- Token and persistence layer: the script reads and stores the YNAB personal access token in Tampermonkey local storage via `GM_getValue` and `GM_setValue`. This keeps the token on the browser profile where it is used instead of hard-coding it into the file.
-- Budget fetch and normalization layer: the script calls the YNAB API, filters out bookkeeping categories, builds a category tree, and converts the raw month data into a simplified model used by the charts.
-- Chart computation layer: for each selected series, the script computes year-to-date cumulative values, determines whether the current year is still in progress, and fills the remaining months with projected averages when needed.
-- Rendering layer: both charts are drawn with inline SVG rather than an external charting library. This keeps the script lightweight and makes it easier to match the visual style of YNAB's own controls and chart containers.
-- Selection and defaults layer: the category pickers let the user choose which categories and category groups contribute to each chart. Those selections are stored in local Tampermonkey storage keyed by budget ID, so saved defaults are remembered per budget instead of globally.
-- UI shell layer: the script injects a small amount of CSS and a custom DOM panel above the native spending chart, so the controls and charts feel like part of the page instead of a separate injected script layer.
+- Route and lifecycle layer: When the page is on a YNAB Spending Trends URL, the script mounts a custom panel above the native chart and removes it again when the user leaves the page. The script watches for routing changes so the UI stays in sync without a full page reload.
+- Token and persistence layer: The script reads and stores the YNAB personal access token in Tampermonkey local storage via `GM_getValue` and `GM_setValue`. This keeps the token on the browser profile where it is used instead of hard-coding it into the file.
+- Budget fetch and normalization layer: The script calls the YNAB API, filters out bookkeeping categories, builds a category tree, and converts the raw month data into a simplified model used by the charts.
+- Chart computation layer: For each selected series, the script computes year-to-date cumulative values, determines whether the current year is still in progress, and fills the remaining months with projected averages when needed.
+- Rendering layer: Both charts are drawn with inline SVG rather than an external charting library. This keeps the script lightweight and makes it easier to match the visual style of YNAB's own controls and chart containers.
+- Selection and defaults layer: The category pickers let the user choose which categories and category groups contribute to each chart. Those selections are stored in local Tampermonkey storage keyed by budget ID, so saved defaults are remembered per budget instead of globally.
+- UI shell layer: The script injects a small amount of CSS and a custom DOM panel above the native spending chart, so the controls and charts feel like part of the page instead of a separate injected script layer.
 
-In short, the script is a browser-side integration layer: it reads YNAB data, normalizes it, computes cumulative trends, and renders a custom visualization directly in the page without any backend or external service.
+In summary, the script is a browser-side integration layer: it reads YNAB data, reshapes the data for the chart, computes cumulative trends, and renders a custom visualization directly in the page without any backend or external service.
 
 ## Disclaimer
 
