@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YNAB Cumulative Trends
 // @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
-// @version      1.0.0
+// @version      1.1.0
 // @description  Adds cumulative (running-total) line charts, Income vs. Spend and Category Trends, above YNAB's monthly Spending Trends
 // @author       Amy Folkestad
 // @match        https://app.ynab.com/*
@@ -50,6 +50,7 @@
   };
 
   const API_BASE = 'https://api.ynab.com/v1';
+  const DEFAULT_GROUPS_STORAGE_PREFIX = 'ynab_cumulative_default_groups_';
   const log = (...args) => console.log('[YNAB Cumulative]', ...args);
   const warn = (...args) => console.warn('[YNAB Cumulative]', ...args);
   const BUDGET_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reflect\/spending-trends(?:\/|$)/i;
@@ -90,6 +91,46 @@
 
   function clearToken() {
     GM_deleteValue(TOKEN_KEY);
+  }
+
+  function getDefaultGroupsKey(budgetId) {
+    return `${DEFAULT_GROUPS_STORAGE_PREFIX}${budgetId}`;
+  }
+
+  function getSavedDefaultGroups(budgetId) {
+    const stored = GM_getValue(getDefaultGroupsKey(budgetId), null);
+    if (!Array.isArray(stored)) return null;
+    return stored.filter((name) => typeof name === 'string' && name.trim().length > 0);
+  }
+
+  function saveDefaultGroups(budgetId, groupNames) {
+    const cleaned = Array.from(new Set((groupNames || []).filter(Boolean)));
+    GM_setValue(getDefaultGroupsKey(budgetId), cleaned);
+    return cleaned;
+  }
+
+  function clearSavedDefaultGroups(budgetId) {
+    GM_deleteValue(getDefaultGroupsKey(budgetId));
+  }
+
+  function getDefaultCategoryNames(categoryTree, budgetId) {
+    const saved = getSavedDefaultGroups(budgetId);
+    if (saved !== null) {
+      const valid = saved.filter((name) => categoryTree.some((g) => g.name === name));
+      if (valid.length === saved.length) return valid;
+      return valid;
+    }
+    return CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.slice();
+  }
+
+  function idsForGroupNames(categoryTree, groupNames) {
+    const selected = new Set();
+    categoryTree.forEach((group) => {
+      if ((groupNames || []).includes(group.name)) {
+        group.categories.forEach((cat) => selected.add(cat.id));
+      }
+    });
+    return selected;
   }
 
   GM_registerMenuCommand('Reset YNAB API Token', () => {
@@ -517,7 +558,7 @@
   }
 
   // Assign each Category Trends group a stable color from the palette.
-  const GROUP_PALETTE = ['#2d7ff9', '#f26b38', '#20b875', '#e3a51a', '#d94f9d', '#6b7fe8', '#e04b59', '#62b642', '#9a63d8', '#20a6b8'];
+  const GROUP_PALETTE = ['#2d7ff9', '#f26b38', '#20b875', '#e3a51a', '#d94f9d', '#6074d9', '#e04b59', '#62b642', '#9a63d8', '#20a6b8'];
   function buildGroupColorMap(categoryTree) {
     const map = {};
     categoryTree.forEach((g, i) => { map[g.name] = GROUP_PALETTE[i % GROUP_PALETTE.length]; });
@@ -773,12 +814,33 @@
 
       /* ---- category picker (mimics YNAB's own "All Categories" selector) ---- */
       .yct-picker { position: relative; font-size: 13px; }
-      .yct-picker-btn {
-        font-family: inherit; font-size: 13px; font-weight: 600; color: #2a5fd6;
-        background: #eef3fd; border: 1px solid #d7e2f8; border-radius: 8px;
+      .yct-picker-btn,
+      .yct-default-groups-btn,
+      .yct-default-groups-save,
+      .yct-default-groups-reset {
+        font-family: inherit; font-size: 13px; font-weight: 600; color: #6074d9;
+        background: #edf2ff; border: 1px solid #dfe7ff; border-radius: 8px;
         padding: 7px 12px; cursor: pointer; white-space: nowrap;
       }
-      .yct-picker-btn:hover { background: #e3ecfc; }
+      .yct-picker-btn:hover,
+      .yct-default-groups-btn:hover,
+      .yct-default-groups-save:hover,
+      .yct-default-groups-reset:hover { background: #e5edff; }
+      .yct-default-groups-wrap { position: relative; }
+      .yct-default-groups-panel {
+        position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+        width: 240px; background: #fff; border: 1px solid #e2e5ec; border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(20, 24, 40, 0.16); display: flex; flex-direction: column; overflow: hidden;
+      }
+      .yct-default-groups-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 8px 0; }
+      .yct-default-groups-row {
+        display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: #2c2e38;
+      }
+      .yct-default-groups-row:hover { background: #f7f8fb; }
+      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #6074d9; }
+      .yct-default-groups-footer {
+        display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #ece9e0; padding: 9px 12px;
+      }
       .yct-picker-panel {
         position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
         width: 300px; max-width: 80vw; background: #fff; border: 1px solid #e2e5ec;
@@ -897,11 +959,98 @@
     return yearControl;
   }
 
-  function createChartControls(reportYear, picker, availableYears) {
+  function createDefaultGroupsButton({ budgetId, categoryTree, onSave }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'yct-default-groups-wrap';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'yct-default-groups-btn';
+    btn.textContent = 'Default Groups';
+
+    const panel = document.createElement('div');
+    panel.className = 'yct-default-groups-panel';
+    panel.style.display = 'none';
+
+    let draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
+
+    function renderPanel() {
+      panel.innerHTML = '';
+      const list = document.createElement('div');
+      list.className = 'yct-default-groups-list';
+      categoryTree.forEach((group) => {
+        const row = document.createElement('label');
+        row.className = 'yct-default-groups-row';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = draft.has(group.name);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
+            draft.add(group.name);
+          } else {
+            draft.delete(group.name);
+          }
+        });
+        const label = document.createElement('span');
+        label.textContent = group.name;
+        row.appendChild(checkbox);
+        row.appendChild(label);
+        list.appendChild(row);
+      });
+
+      const footer = document.createElement('div');
+      footer.className = 'yct-default-groups-footer';
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'yct-default-groups-reset';
+      resetBtn.textContent = 'Reset to Built-In';
+      resetBtn.addEventListener('click', () => {
+        clearSavedDefaultGroups(budgetId);
+        draft = new Set(CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS);
+        onSave(CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.slice());
+        panel.style.display = 'none';
+      });
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'yct-default-groups-save';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => {
+        const groupNames = Array.from(draft);
+        saveDefaultGroups(budgetId, groupNames);
+        onSave(groupNames);
+        panel.style.display = 'none';
+      });
+
+      footer.appendChild(resetBtn);
+      footer.appendChild(saveBtn);
+      panel.appendChild(list);
+      panel.appendChild(footer);
+    }
+
+    btn.addEventListener('click', () => {
+      draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
+      renderPanel();
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.addEventListener('mousedown', (event) => {
+      if (panel.style.display !== 'none' && !wrap.contains(event.target)) {
+        panel.style.display = 'none';
+      }
+    });
+
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
+    return wrap;
+  }
+
+  function createChartControls(reportYear, picker, availableYears, extraControl = null) {
     const controls = document.createElement('div');
     controls.className = 'yct-chart-controls';
     controls.appendChild(createYearSelector(reportYear, availableYears));
     controls.appendChild(picker);
+    if (extraControl) controls.appendChild(extraControl);
     return controls;
   }
 
@@ -924,10 +1073,7 @@
     // Set defaults once. Edit CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS to choose yours.
     if (!spendSelection) spendSelection = new Set(allLeafIds(categoryTree));
     if (!categoryTrendsSelection) {
-      categoryTrendsSelection = new Set();
-      categoryTree.forEach((g) => {
-        if (CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS.includes(g.name)) g.categories.forEach((c) => categoryTrendsSelection.add(c.id));
-      });
+      categoryTrendsSelection = idsForGroupNames(categoryTree, getDefaultCategoryNames(categoryTree, budgetId));
     }
     const groupColor = buildGroupColorMap(categoryTree);
 
@@ -978,7 +1124,15 @@
       countMode: 'groups',
       onDone: (newSet) => { categoryTrendsSelection = newSet; renderCategoryTrendsCard(); },
     });
-    const categoryTrendsChartControls = createChartControls(reportYear, categoryTrendsPicker, availableYears);
+    const defaultGroupsBtn = createDefaultGroupsButton({
+      budgetId,
+      categoryTree,
+      onSave: (groupNames) => {
+        categoryTrendsSelection = idsForGroupNames(categoryTree, groupNames);
+        renderCategoryTrendsCard();
+      },
+    });
+    const categoryTrendsChartControls = createChartControls(reportYear, categoryTrendsPicker, availableYears, defaultGroupsBtn);
     function renderCategoryTrendsCard() {
       categoryTrendsMount.innerHTML = '';
       const summary = computeSummary(months, new Set(), categoryTrendsSelection, catMeta, categoryTree);
