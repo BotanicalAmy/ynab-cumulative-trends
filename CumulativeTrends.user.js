@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YNAB Cumulative Trends
 // @namespace    https://github.com/BotanicalAmy/ynab-cumulative-trends
-// @version      1.1.0
+// @version      1.2.0
 // @description  Adds cumulative (running-total) line charts, Income vs. Spend and Spending Trends by group, above YNAB's monthly Spending Trends
 // @author       Amy Folkestad
 // @match        https://app.ynab.com/*
@@ -23,10 +23,6 @@
   'use strict';
 
   const CONFIG = {
-    // The script starts with no default Spending Trends groups selected.
-    // Users can pick their own defaults from the chart header, and those choices are saved per budget in Tampermonkey local storage.
-    DEFAULT_CATEGORY_TRENDS_GROUPS: [],
-
     // These groups are internal YNAB bookkeeping, not real spending. Keep them out of the picker and all category-based spending totals.
     SYSTEM_GROUPS: ['Internal Master Category', 'Credit Card Payments'],
 
@@ -38,7 +34,7 @@
   };
 
   const API_BASE = 'https://api.ynab.com/v1';
-  const DEFAULT_GROUPS_STORAGE_PREFIX = 'ynab_cumulative_default_groups_';
+  const SELECTION_STORAGE_PREFIX = 'ynab_cumulative_selection_';
   const log = (...args) => console.log('[YNAB Cumulative]', ...args);
   const warn = (...args) => console.warn('[YNAB Cumulative]', ...args);
 
@@ -84,45 +80,26 @@
     GM_deleteValue(TOKEN_KEY);
   }
 
-  // Store the default Spending Trends groups in Tampermonkey local storage so the user saves their preferences 
-  // Saved per unique budget ID to handle users with multiple budgets
-  function getDefaultGroupsKey(budgetId) {
-    return `${DEFAULT_GROUPS_STORAGE_PREFIX}${budgetId}`;
+  // Store each picker's selected category ids in Tampermonkey local storage so the user's choices
+  // persist across reloads. Saved per unique budget ID to handle users with multiple budgets.
+  function getSelectionKey(budgetId, pickerKey) {
+    return `${SELECTION_STORAGE_PREFIX}${pickerKey}_${budgetId}`;
   }
 
-  function getSavedDefaultGroups(budgetId) {
-    const stored = GM_getValue(getDefaultGroupsKey(budgetId), null);
+  function getSavedSelectionIds(budgetId, pickerKey) {
+    const stored = GM_getValue(getSelectionKey(budgetId, pickerKey), null);
     if (!Array.isArray(stored)) return null;
-    return stored.filter((name) => typeof name === 'string' && name.trim().length > 0);
+    return stored.filter((id) => typeof id === 'string' && id.trim().length > 0);
   }
 
-  function saveDefaultGroups(budgetId, groupNames) {
-    const cleaned = Array.from(new Set((groupNames || []).filter(Boolean)));
-    GM_setValue(getDefaultGroupsKey(budgetId), cleaned);
-    return cleaned;
+  function saveSelectionIds(budgetId, pickerKey, ids) {
+    GM_setValue(getSelectionKey(budgetId, pickerKey), Array.from(new Set(ids)));
   }
 
-  function clearSavedDefaultGroups(budgetId) {
-    GM_deleteValue(getDefaultGroupsKey(budgetId));
-  }
-
-  function getDefaultCategoryNames(categoryTree, budgetId) {
-    const saved = getSavedDefaultGroups(budgetId);
-    if (saved !== null) {
-      const valid = saved.filter((name) => categoryTree.some((g) => g.name === name));
-      return valid;
-    }
-    return [];
-  }
-
-  function idsForGroupNames(categoryTree, groupNames) {
-    const selected = new Set();
-    categoryTree.forEach((group) => {
-      if ((groupNames || []).includes(group.name)) {
-        group.categories.forEach((cat) => selected.add(cat.id));
-      }
-    });
-    return selected;
+  // Drop any saved ids that no longer exist in the current category tree (e.g. deleted categories).
+  function validSelectionIds(categoryTree, ids) {
+    const allIds = new Set(allLeafIds(categoryTree));
+    return ids.filter((id) => allIds.has(id));
   }
 
   // Expose a simple Tampermonkey menu action so the user can replace an expired or rejected YNAB token without editing this file.
@@ -268,25 +245,6 @@
     button.className = className;
     if (text !== undefined && text !== null) button.textContent = text;
     return button;
-  }
-  function createCheckboxRow({ labelText, checked, rowClassName, onToggle, hiddenText = null }) {
-    const row = document.createElement('label');
-    row.className = rowClassName;
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = checked;
-    checkbox.addEventListener('change', () => onToggle(checkbox.checked));
-    const label = document.createElement('span');
-    label.textContent = labelText;
-    row.appendChild(checkbox);
-    row.appendChild(label);
-    if (hiddenText) {
-      const tag = document.createElement('span');
-      tag.className = 'yct-picker-hidden-tag';
-      tag.textContent = hiddenText;
-      row.appendChild(tag);
-    }
-    return row;
   }
   function bindOutsideClick(scope, panel, closePanel) {
     const outsideClickHandler = (event) => {
@@ -630,7 +588,7 @@
   // Each chart uses a menu that lets a user pick categories or category groups.
   // For the spend view, selection is by leaf category; for Spending Trends, we count selected groups and then roll all of their leaf categories up together.
   let pickerInstanceId = 0;
-  function createCategoryPicker({ tree, selected, onDone }) {
+  function createCategoryPicker({ tree, selected, onDone, note }) {
     const totalGroups = tree.length;
     const pickerId = ++pickerInstanceId;
     let applied = new Set(selected);
@@ -694,7 +652,6 @@
         gCb.addEventListener('change', () => {
           g.categories.forEach((c) => { if (gCb.checked) draft.add(c.id); else draft.delete(c.id); });
           renderList(filterText);
-          applyChanges();
         });
         const gLabel = document.createElement('label');
         gLabel.htmlFor = gCb.id;
@@ -713,7 +670,6 @@
           cCb.addEventListener('change', () => {
             if (cCb.checked) draft.add(c.id); else draft.delete(c.id);
             syncGroupState(g.name);
-            applyChanges();
           });
           const cLabel = document.createElement('label');
           cLabel.htmlFor = cCb.id;
@@ -733,56 +689,42 @@
       list.scrollTop = scrollTop;
     }
 
-    function applyChanges() {
+    // Save commits the in-panel draft: it becomes the applied selection, updates the chart, and persists to storage.
+    function saveChanges() {
       applied = new Set(draft);
       updateButton();
-      // onDone re-renders the chart card, which detaches/reattaches this picker's DOM and would otherwise reset the list's scroll position.
-      const list = panel.querySelector('.yct-picker-list');
-      const scrollTop = list ? list.scrollTop : 0;
       onDone(new Set(applied));
-      if (list) list.scrollTop = scrollTop;
+      close();
     }
 
-    function setsEqual(a, b) {
-      if (a.size !== b.size) return false;
-      for (const v of a) if (!b.has(v)) return false;
-      return true;
+    // Cancel (and clicking outside the panel) discards any unsaved draft edits.
+    function discardChanges() {
+      draft = new Set(applied);
+      close();
     }
 
     let outsideClickHandler = null;
-    let openedWith = null;
     function open() {
       draft = new Set(applied);
-      openedWith = new Set(applied);
       panel.innerHTML = `
+        ${note ? `<div class="yct-picker-note">${note}</div>` : ''}
         <input type="text" class="yct-picker-search" placeholder="Search Categories" />
         <div class="yct-picker-list"></div>
         <div class="yct-picker-footer">
-          <div class="yct-picker-footer-links">
-            <button type="button" class="yct-picker-link" data-act="all">Select All</button>
-            <button type="button" class="yct-picker-link" data-act="none">Select None</button>
-          </div>
+          <button type="button" class="yct-picker-reset">Reset</button>
           <div class="yct-picker-footer-actions">
             <button type="button" class="yct-picker-cancel">Cancel</button>
-            <button type="button" class="yct-picker-done">Done</button>
+            <button type="button" class="yct-picker-save">Save</button>
           </div>
         </div>
       `;
       renderList('');
       panel.querySelector('.yct-picker-search').addEventListener('input', (e) => renderList(e.target.value));
-      panel.querySelector('[data-act="all"]').addEventListener('click', () => { draft = new Set(allLeafIds(tree)); renderList(panel.querySelector('.yct-picker-search').value); applyChanges(); });
-      panel.querySelector('[data-act="none"]').addEventListener('click', () => { draft = new Set(); renderList(panel.querySelector('.yct-picker-search').value); applyChanges(); });
-      panel.querySelector('.yct-picker-cancel').addEventListener('click', () => {
-        if (openedWith && !setsEqual(applied, openedWith)) {
-          applied = new Set(openedWith);
-          updateButton();
-          onDone(new Set(applied));
-        }
-        close();
-      });
-      panel.querySelector('.yct-picker-done').addEventListener('click', close);
+      panel.querySelector('.yct-picker-reset').addEventListener('click', () => { draft = new Set(); renderList(panel.querySelector('.yct-picker-search').value); });
+      panel.querySelector('.yct-picker-cancel').addEventListener('click', discardChanges);
+      panel.querySelector('.yct-picker-save').addEventListener('click', saveChanges);
       panel.style.display = 'block';
-      outsideClickHandler = bindOutsideClick(wrap, panel, close);
+      outsideClickHandler = bindOutsideClick(wrap, panel, discardChanges);
     }
     function close() {
       panel.style.display = 'none';
@@ -814,6 +756,8 @@
         margin: 16px 0;
       }
       .yct-chart-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .yct-header-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+      .yct-excluded-note { font-size: 11px; color: var(--yct-text-muted); text-align: right; max-width: 260px; }
       .yct-year-control { display: flex; align-items: center; gap: 4px; }
       .yct-year-label { margin-right: 4px; color: var(--yct-text-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
       .yct-year-select {
@@ -884,41 +828,20 @@
 
       /* ---- category picker (mimics YNAB's own "All Categories" selector) ---- */
       .yct-picker { position: relative; font-size: 13px; }
-      .yct-picker-btn,
-      .yct-default-groups-btn,
-      .yct-default-groups-save,
-      .yct-default-groups-reset {
+      .yct-picker-btn {
         font-family: inherit; font-size: 13px; font-weight: 600; color: var(--yct-blue);
         background: var(--yct-blue-soft); border: 1px solid var(--yct-blue-border); border-radius: 8px;
         padding: 7px 12px; cursor: pointer; white-space: nowrap;
       }
-      .yct-picker-btn:hover,
-      .yct-default-groups-btn:hover,
-      .yct-default-groups-save:hover,
-      .yct-default-groups-reset:hover { background: var(--yct-blue-soft-hover); }
-      .yct-default-groups-wrap { position: relative; }
-      .yct-default-groups-panel {
-        position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
-        width: 240px; background: #fff; border: 1px solid var(--yct-panel-border); border-radius: 10px;
-        box-shadow: 0 8px 28px var(--yct-panel-shadow); display: flex; flex-direction: column; overflow: hidden;
-      }
-      .yct-default-groups-note {
-        padding: 10px 12px 8px; font-size: 12px; line-height: 1.4; color: #5b6170; border-bottom: 1px solid var(--yct-divider);
-      }
-      .yct-default-groups-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 8px 0; }
-      .yct-default-groups-row {
-        display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: #2c2e38;
-      }
-      .yct-default-groups-row:hover { background: var(--yct-row-hover); }
-      .yct-default-groups-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--yct-blue); }
-      .yct-default-groups-footer {
-        display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--yct-divider); padding: 9px 12px;
-      }
+      .yct-picker-btn:hover { background: var(--yct-blue-soft-hover); }
       .yct-picker-panel {
         position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
         width: 300px; max-width: 80vw; background: #fff; border: 1px solid var(--yct-panel-border);
         border-radius: 10px; box-shadow: 0 8px 28px var(--yct-panel-shadow);
         display: flex; flex-direction: column; overflow: hidden;
+      }
+      .yct-picker-note {
+        padding: 10px 14px; font-size: 12px; line-height: 1.4; color: #5b6170; border-bottom: 1px solid var(--yct-divider);
       }
       .yct-picker-search {
         font-family: inherit; font-size: 13px; border: none; border-bottom: 1px solid var(--yct-divider);
@@ -940,21 +863,17 @@
         display: flex; align-items: center; justify-content: space-between;
         border-top: 1px solid var(--yct-divider); padding: 9px 12px; gap: 8px;
       }
-      .yct-picker-footer-links { display: flex; gap: 12px; }
-      .yct-picker-link {
-        font-family: inherit; font-size: 12px; font-weight: 600; color: var(--yct-blue);
-        background: none; border: none; cursor: pointer; padding: 2px;
-      }
-      .yct-picker-link:hover { text-decoration: underline; }
       .yct-picker-footer-actions { display: flex; gap: 8px; }
-      .yct-picker-cancel, .yct-picker-done {
+      .yct-picker-reset, .yct-picker-cancel, .yct-picker-save {
         font-family: inherit; font-size: 12.5px; font-weight: 600; border-radius: 7px;
         padding: 6px 13px; cursor: pointer; border: 1px solid transparent;
       }
+      .yct-picker-reset { background: var(--yct-blue-soft); color: var(--yct-blue); }
+      .yct-picker-reset:hover { background: var(--yct-blue-soft-hover); }
       .yct-picker-cancel { background: #f0f1f4; color: #4a4d59; }
       .yct-picker-cancel:hover { background: #e6e7ec; }
-      .yct-picker-done { background: var(--yct-blue); color: #fff; }
-      .yct-picker-done:hover { background: #424deb; }
+      .yct-picker-save { background: var(--yct-blue); color: #fff; }
+      .yct-picker-save:hover { background: #424deb; }
     `);
   }
 
@@ -1031,104 +950,17 @@
     return yearControl;
   }
 
-  // This menu allows the user to choose and save their default Spending Trends groups for the current budget. 
-  // Those saved values are reapplied automatically on later visits to this budget's Spending Trends page.
-  function createDefaultGroupsButton({ budgetId, categoryTree, onSave }) {
-    const wrap = document.createElement('div');
-    wrap.className = 'yct-default-groups-wrap';
-
-    const btn = createButton({ className: 'yct-default-groups-btn', text: 'Default Groups' });
-    const panel = document.createElement('div');
-    panel.className = 'yct-default-groups-panel';
-    panel.style.display = 'none';
-
-    let draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
-    let outsideClickHandler = null;
-
-    function closePanel() {
-      panel.style.display = 'none';
-      if (outsideClickHandler) {
-        document.removeEventListener('mousedown', outsideClickHandler);
-        outsideClickHandler = null;
-      }
-    }
-
-    function renderPanel() {
-      panel.replaceChildren();
-      const note = document.createElement('div');
-      note.className = 'yct-default-groups-note';
-      note.textContent = 'Select the default groups to monitor with the Spending Trends view.';
-      panel.appendChild(note);
-
-      const list = document.createElement('div');
-      list.className = 'yct-default-groups-list';
-      categoryTree.forEach((group) => {
-        const row = createCheckboxRow({
-          labelText: group.name,
-          checked: draft.has(group.name),
-          rowClassName: 'yct-default-groups-row',
-          onToggle: (isChecked) => {
-            if (isChecked) draft.add(group.name);
-            else draft.delete(group.name);
-          },
-        });
-        list.appendChild(row);
-      });
-
-      const footer = document.createElement('div');
-      footer.className = 'yct-default-groups-footer';
-
-      const resetBtn = createButton({ className: 'yct-default-groups-reset', text: 'Reset' });
-      resetBtn.addEventListener('click', () => {
-        clearSavedDefaultGroups(budgetId);
-        draft = new Set();
-        onSave([]);
-        closePanel();
-      });
-
-      const saveBtn = createButton({ className: 'yct-default-groups-save', text: 'Save' });
-      saveBtn.addEventListener('click', () => {
-        const groupNames = Array.from(draft);
-        saveDefaultGroups(budgetId, groupNames);
-        onSave(groupNames);
-        closePanel();
-      });
-
-      footer.appendChild(resetBtn);
-      footer.appendChild(saveBtn);
-      panel.appendChild(list);
-      panel.appendChild(footer);
-    }
-
-    btn.addEventListener('click', () => {
-      draft = new Set(getDefaultCategoryNames(categoryTree, budgetId));
-      renderPanel();
-      if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        outsideClickHandler = bindOutsideClick(wrap, panel, closePanel);
-      } else {
-        closePanel();
-      }
-    });
-
-    wrap.appendChild(btn);
-    wrap.appendChild(panel);
-    return wrap;
-  }
-
-  // Compose the shared header controls for each chart: 
-  // year selector, category picker, and any optional budget-specific control like "Default Groups".
-  function createChartControls(reportYear, picker, availableYears, extraControl = null) {
+  // Compose the shared header controls for each chart: year selector and category picker.
+  function createChartControls(reportYear, picker, availableYears) {
     const controls = document.createElement('div');
     controls.className = 'yct-chart-controls';
     controls.appendChild(createYearSelector(reportYear, availableYears));
     controls.appendChild(picker);
-    if (extraControl) controls.appendChild(extraControl);
     return controls;
   }
 
   // Build the custom panel that sits above YNAB's native chart and renders the
-  // two cumulative cards plus their controls and saved default-group selector.
+  // two cumulative cards plus their controls and saved category selections.
   function buildPanel({ catMeta, months, categoryTree, availableYears }, budgetId, reportYear) {
     injectStyles();
     const root = document.createElement('div');
@@ -1144,10 +976,14 @@
       log('Native chart not found — added panel above the page content instead.');
     }
 
-    // Set defaults once. Edit CONFIG.DEFAULT_CATEGORY_TRENDS_GROUPS to choose yours.
-    if (!spendSelection) spendSelection = new Set(allLeafIds(categoryTree));
+    // Fall back to each chart's saved category selection, or a default, when nothing is selected yet.
+    if (!spendSelection) {
+      const saved = getSavedSelectionIds(budgetId, 'spend');
+      spendSelection = new Set(saved ? validSelectionIds(categoryTree, saved) : allLeafIds(categoryTree));
+    }
     if (!categoryTrendsSelection) {
-      categoryTrendsSelection = idsForGroupNames(categoryTree, getDefaultCategoryNames(categoryTree, budgetId));
+      const saved = getSavedSelectionIds(budgetId, 'category_trends');
+      categoryTrendsSelection = new Set(saved ? validSelectionIds(categoryTree, saved) : []);
     }
     const groupColor = buildGroupColorMap(categoryTree);
 
@@ -1156,13 +992,35 @@
     const incomePicker = createCategoryPicker({
       tree: categoryTree,
       selected: spendSelection,
-      onDone: (newSet) => { spendSelection = newSet; renderIncomeCard(); },
+      note: "Deselect spending that is contributing towards savings and investing accounts.",
+      onDone: (newSet) => {
+        spendSelection = newSet;
+        saveSelectionIds(budgetId, 'spend', newSet);
+        renderIncomeCard();
+      },
     });
     const incomeChartControls = createChartControls(reportYear, incomePicker, availableYears);
+    const incomeExcludedNote = document.createElement('div');
+    incomeExcludedNote.className = 'yct-excluded-note';
+    const incomeHeaderRight = document.createElement('div');
+    incomeHeaderRight.className = 'yct-header-stack';
+    incomeHeaderRight.append(incomeChartControls, incomeExcludedNote);
+
+    // Name the deselected categories under the picker so it's obvious what's being left out of Spend.
+    function updateIncomeExcludedNote() {
+      const excludedNames = categoryTree
+        .flatMap((g) => g.categories)
+        .filter((c) => !spendSelection.has(c.id))
+        .map((c) => c.name);
+      incomeExcludedNote.textContent = excludedNames.length ? `${excludedNames.join(', ')} excluded` : '';
+      incomeExcludedNote.style.display = excludedNames.length ? '' : 'none';
+    }
+
     function renderIncomeCard() {
       incomeMount.replaceChildren();
+      updateIncomeExcludedNote();
       const summary = computeSummary(months, spendSelection, new Set(), catMeta, categoryTree);
-      const chartControls = incomeChartControls;
+      const chartControls = incomeHeaderRight;
       drawCumulativeChart(
         incomeMount,
         summary.map((r) => ({ m: r.m, monthIndex: r.monthIndex, income: r.income, totalSpend: r.totalSpend })),
@@ -1196,18 +1054,14 @@
     const categoryTrendsPicker = createCategoryPicker({
       tree: categoryTree,
       selected: categoryTrendsSelection,
-      countMode: 'groups',
-      onDone: (newSet) => { categoryTrendsSelection = newSet; renderCategoryTrendsCard(); },
-    });
-    const defaultGroupsBtn = createDefaultGroupsButton({
-      budgetId,
-      categoryTree,
-      onSave: (groupNames) => {
-        categoryTrendsSelection = idsForGroupNames(categoryTree, groupNames);
+      note: 'Select the default groups to monitor with the Spending Trends view.',
+      onDone: (newSet) => {
+        categoryTrendsSelection = newSet;
+        saveSelectionIds(budgetId, 'category_trends', newSet);
         renderCategoryTrendsCard();
       },
     });
-    const categoryTrendsChartControls = createChartControls(reportYear, categoryTrendsPicker, availableYears, defaultGroupsBtn);
+    const categoryTrendsChartControls = createChartControls(reportYear, categoryTrendsPicker, availableYears);
     function renderCategoryTrendsCard() {
       categoryTrendsMount.replaceChildren();
       const summary = computeSummary(months, new Set(), categoryTrendsSelection, catMeta, categoryTree);
